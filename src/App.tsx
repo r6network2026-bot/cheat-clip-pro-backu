@@ -668,7 +668,7 @@ export default function App() {
     }, 600);
 
     return () => clearTimeout(delayDebounce);
-  }, [apiKey]);
+  }, [apiKey, selectedModel]);
 
   // Sync marked clips with local storage based on active video ID
   useEffect(() => {
@@ -723,7 +723,7 @@ export default function App() {
   };
 
   // Scan localStorage and build the history list from cache keys
-  const refreshHistory = () => {
+  const refreshHistory = useCallback(() => {
     const entries: HistoryEntry[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -788,12 +788,12 @@ export default function App() {
     // Sort by most recent first
     entries.sort((a, b) => new Date(b.analyzed_at).getTime() - new Date(a.analyzed_at).getTime());
     setHistory(entries);
-  };
+  }, []);
 
   // Load history on mount
   useEffect(() => {
     refreshHistory();
-  }, []);
+  }, [refreshHistory]);
 
   const loadFromHistory = (entry: HistoryEntry) => {
     const rangeSuffix = entry.range_suffix || '';
@@ -2040,7 +2040,7 @@ Transcript:
         }
       }
     }
-  }, [activeClip]);
+  }, [activeClip, sortedClips]);
 
   // Find current subtitle line with slight gap tolerance to prevent jitter
   const currentSubtitle = result?.transcript?.find(

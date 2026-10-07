@@ -1145,7 +1145,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
    * Snug defaults for each aspect ratio, line count, and streamer preset:
    * Keeps title and subtitle CLOSE to the video content without touching.
    */
-  const getDefaultPositions = (
+  const getDefaultPositions = useCallback((
     ratio: AspectRatioOption,
     lines: number,
     preset: StreamerPreset = streamerPreset
@@ -1191,7 +1191,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       subtitleY: 21.0,
       subCenterY: 50,
     };
-  };
+  }, [streamerPreset]);
 
   /**
    * Hard limits so slider adjustments cannot physically cross into content boxes.
@@ -1284,7 +1284,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       const defaults = getDefaultPositions(aspectRatio, titleLineCount, streamerPreset);
       setTitleYPercent(defaults.titleY);
     }
-  }, [aspectRatio, titleLineCount, streamerPreset, isCustomTitleY]);
+  }, [aspectRatio, titleLineCount, streamerPreset, isCustomTitleY, getDefaultPositions]);
 
   const handleSelectAspectRatio = (newRatio: AspectRatioOption) => {
     setAspectRatio(newRatio);
