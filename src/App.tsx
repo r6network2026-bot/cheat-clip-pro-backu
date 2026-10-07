@@ -1,20 +1,26 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { HeatmapTimeline } from './components/HeatmapTimeline';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
-import { ClipStudioSection } from './components/ClipStudioSection';
-import { CookiesModal } from './components/CookiesModal';
-import { ClipTrimmerModal } from './components/ClipTrimmerModal';
-import { AppUpdateModal } from './components/AppUpdateModal';
 import { resilientFetch } from './utils/api';
 import { useLanguage } from './locales';
-import type { AnalyzeResponse, ViralClip, RenderSettings, BatchRenderProgress } from './types';
+import type { AnalyzeResponse, ViralClip, RenderSettings, BatchRenderProgress, YouTubePlayer } from './types';
 
-// Declare YT global variables for TypeScript
-declare global {
-  interface Window {
-    YT: any;
-    onYouTubeIframeAPIReady: (() => void) | undefined;
-  }
+const ClipStudioSection = lazy(() =>
+  import('./components/ClipStudioSection').then(module => ({ default: module.ClipStudioSection }))
+);
+const CookiesModal = lazy(() =>
+  import('./components/CookiesModal').then(module => ({ default: module.CookiesModal }))
+);
+const ClipTrimmerModal = lazy(() =>
+  import('./components/ClipTrimmerModal').then(module => ({ default: module.ClipTrimmerModal }))
+);
+const AppUpdateModal = lazy(() =>
+  import('./components/AppUpdateModal').then(module => ({ default: module.AppUpdateModal }))
+);
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  return typeof error === 'string' && error ? error : fallback;
 }
 
 export default function App() {
@@ -44,7 +50,9 @@ export default function App() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('cheat_clip_gemini_api_key') || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isCookiesModalOpen, setIsCookiesModalOpen] = useState(false);
+  const [hasOpenedCookiesModal, setHasOpenedCookiesModal] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [hasOpenedUpdateModal, setHasOpenedUpdateModal] = useState(false);
   const [hasCookies, setHasCookies] = useState(false);
   const [isDownloadingRaw, setIsDownloadingRaw] = useState(false);
   const [rawDownloadProgress, setRawDownloadProgress] = useState<{
@@ -374,8 +382,8 @@ export default function App() {
 
       // Listen to SSE progress
       listenToBatchProgress(batchId);
-    } catch (err: any) {
-      alert(err.message || 'Error launching batch render');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Error launching batch render'));
     } finally {
       setIsLaunchingRender(false);
     }
@@ -417,8 +425,8 @@ export default function App() {
 
       // Reconnect SSE to track retry progress
       listenToBatchProgress(batchId);
-    } catch (err: any) {
-      alert(err.message || 'Error retrying clip rendering');
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Error retrying clip rendering'));
     }
   };
 
@@ -445,7 +453,8 @@ export default function App() {
 
   // Audio/video playback state tracking
   const [currentTime, setCurrentTime] = useState(0);
-  const playerRef = useRef<any>(null);
+  const playerRef = useRef<YouTubePlayer | null>(null);
+  const initPlayerRef = useRef<((videoId: string, forceRecreate?: boolean) => void) | null>(null);
   const directVideoPlayerRef = useRef<HTMLVideoElement | null>(null);
   const trackingInterval = useRef<number | null>(null);
   const clipEndIntervalRef = useRef<number | null>(null);
@@ -466,6 +475,103 @@ export default function App() {
       }, durationMs);
     }
   }, []);
+
+  const stopTracking = useCallback(() => {
+    if (trackingInterval.current !== null) {
+      clearInterval(trackingInterval.current);
+      trackingInterval.current = null;
+    }
+  }, []);
+
+  const startTracking = useCallback(() => {
+    stopTracking();
+    trackingInterval.current = window.setInterval(() => {
+      if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+        setCurrentTime(playerRef.current.getCurrentTime());
+      }
+    }, 200);
+  }, [stopTracking]);
+
+  const destroyPlayer = useCallback(() => {
+    stopTracking();
+    if (playerRef.current) {
+      try {
+        if (typeof playerRef.current.destroy === 'function') {
+          playerRef.current.destroy();
+        }
+      } catch (e) {
+        console.warn('Error destroying player:', e);
+      }
+      playerRef.current = null;
+    }
+    const container = document.getElementById('youtube-player-container');
+    if (container) {
+      container.innerHTML = '<div id="youtube-player"></div>';
+    }
+  }, [stopTracking]);
+
+  const initPlayer = useCallback((videoId: string, forceRecreate = false) => {
+    if (!videoId || videoId.startsWith('upload_') || videoId.startsWith('gdrive_')) {
+      return;
+    }
+    if (!forceRecreate && playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
+      try {
+        playerRef.current.loadVideoById(videoId);
+        return;
+      } catch (e) {
+        console.error('Failed to load video on existing player, will recreate...', e);
+      }
+    }
+
+    const container = document.getElementById('youtube-player-container');
+    if (!container) {
+      window.setTimeout(() => initPlayerRef.current?.(videoId, forceRecreate), 100);
+      return;
+    }
+
+    if (playerRef.current) {
+      destroyPlayer();
+    }
+
+    if (window.YT && window.YT.Player) {
+      if (!document.getElementById('youtube-player')) {
+        container.innerHTML = '<div id="youtube-player"></div>';
+      }
+      try {
+        playerRef.current = new window.YT.Player('youtube-player', {
+          videoId,
+          playerVars: {
+            autoplay: 0,
+            modestbranding: 1,
+            rel: 0,
+            controls: 1,
+            fs: 1,
+          },
+          events: {
+            onReady: () => {
+              console.log('YouTube Player Ready');
+            },
+            onStateChange: (event) => {
+              if (event.data === 1) {
+                startTracking();
+              } else {
+                stopTracking();
+                if (playerRef.current) {
+                  setCurrentTime(playerRef.current.getCurrentTime());
+                }
+              }
+            },
+          },
+        });
+      } catch (err) {
+        console.error('Error instantiating YouTube Player:', err);
+        window.setTimeout(() => initPlayerRef.current?.(videoId, forceRecreate), 300);
+      }
+    } else {
+      window.setTimeout(() => initPlayerRef.current?.(videoId, forceRecreate), 200);
+    }
+  }, [destroyPlayer, startTracking, stopTracking]);
+
   const [isClearingGlobalTemp, setIsClearingGlobalTemp] = useState<boolean>(false);
   const [showGlobalClearModal, setShowGlobalClearModal] = useState<boolean>(false);
 
@@ -523,34 +629,6 @@ export default function App() {
       return () => clearTimeout(scrollTimer);
     }
   }, [loading]);
-
-  // Initialize YouTube IFrame API
-  useEffect(() => {
-    // Check if script is already injected
-    const existingScript = document.getElementById('youtube-iframe-api-script');
-    if (!existingScript) {
-      const tag = document.createElement('script');
-      tag.id = 'youtube-iframe-api-script';
-      tag.src = 'https://www.youtube.com/iframe_api';
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-    }
-
-    // Set global callback
-    window.onYouTubeIframeAPIReady = () => {
-      // Re-trigger player init if a result is already loaded
-      if (result) {
-        initPlayer(result.video_id);
-      }
-    };
-
-    return () => {
-      stopTracking();
-      if (clipEndIntervalRef.current !== null) {
-        clearInterval(clipEndIntervalRef.current);
-      }
-    };
-  }, [result]);
 
   // Fetch available AI models when API key is detected/entered
   useEffect(() => {
@@ -876,110 +954,31 @@ export default function App() {
   };
 
 
-  const destroyPlayer = () => {
-    stopTracking();
-    if (playerRef.current) {
-      try {
-        if (typeof playerRef.current.destroy === 'function') {
-          playerRef.current.destroy();
-        }
-      } catch (e) {
-        console.warn('Error destroying player:', e);
+  // Initialize YouTube IFrame API
+  useEffect(() => {
+    initPlayerRef.current = initPlayer;
+    const existingScript = document.getElementById('youtube-iframe-api-script');
+    if (!existingScript) {
+      const tag = document.createElement('script');
+      tag.id = 'youtube-iframe-api-script';
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    }
+
+    window.onYouTubeIframeAPIReady = () => {
+      if (result) {
+        initPlayer(result.video_id);
       }
-      playerRef.current = null;
-    }
-    const container = document.getElementById('youtube-player-container');
-    if (container) {
-      container.innerHTML = '<div id="youtube-player"></div>';
-    }
-  };
+    };
 
-  const initPlayer = (videoId: string, forceRecreate = false) => {
-    if (!videoId || videoId.startsWith('upload_') || videoId.startsWith('gdrive_')) {
-      return;
-    }
-    // If player already exists and we're not forcing recreate, try to load new video
-    if (!forceRecreate && playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-      try {
-        playerRef.current.loadVideoById(videoId);
-        return;
-      } catch (e) {
-        console.error('Failed to load video on existing player, will recreate...', e);
+    return () => {
+      stopTracking();
+      if (clipEndIntervalRef.current !== null) {
+        clearInterval(clipEndIntervalRef.current);
       }
-    }
-
-    // Ensure target container is rendered in the DOM before instantiating the player.
-    // If React hasn't completed mounting the dashboard yet, wait and retry.
-    const container = document.getElementById('youtube-player-container');
-    if (!container) {
-      setTimeout(() => initPlayer(videoId, forceRecreate), 100);
-      return;
-    }
-
-    // Destroy any stale player first
-    if (playerRef.current) {
-      destroyPlayer();
-    }
-
-    // Create player if YT API is loaded
-    if (window.YT && window.YT.Player) {
-      if (!document.getElementById('youtube-player')) {
-        container.innerHTML = '<div id="youtube-player"></div>';
-      }
-      try {
-        playerRef.current = new window.YT.Player('youtube-player', {
-          videoId: videoId,
-          playerVars: {
-            autoplay: 0,
-            modestbranding: 1,
-            rel: 0,
-            controls: 1,
-            fs: 1,
-          },
-          events: {
-            onReady: () => {
-              console.log('YouTube Player Ready');
-            },
-            onStateChange: (event: any) => {
-              // YT.PlayerState.PLAYING = 1
-              if (event.data === 1) {
-                startTracking();
-              } else {
-                stopTracking();
-                // Update currentTime on pause/stop to sync cursor
-                if (playerRef.current && playerRef.current.getCurrentTime) {
-                  setCurrentTime(playerRef.current.getCurrentTime());
-                }
-              }
-            },
-          },
-        });
-      } catch (err) {
-        console.error('Error instantiating YouTube Player:', err);
-        // Fallback retry in case of transient iframe injection issues
-        setTimeout(() => initPlayer(videoId, forceRecreate), 300);
-      }
-    } else {
-      // Try again in 200ms if global window.YT is not ready yet
-      setTimeout(() => initPlayer(videoId, forceRecreate), 200);
-    }
-  };
-
-  const startTracking = () => {
-    stopTracking();
-    trackingInterval.current = window.setInterval(() => {
-      if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
-        setCurrentTime(playerRef.current.getCurrentTime());
-      }
-    }, 200);
-  };
-
-  const stopTracking = () => {
-    if (trackingInterval.current !== null) {
-      clearInterval(trackingInterval.current);
-      trackingInterval.current = null;
-    }
-  };
+    };
+  }, [result, initPlayer, stopTracking]);
 
   const handleSeek = (seconds: number) => {
     if (directVideoPlayerRef.current) {
@@ -1009,9 +1008,8 @@ export default function App() {
     // Automatically stop video at end time (optional user experience feature)
     // We can monitor playback and pause if it goes past end_time
     const intervalId = window.setInterval(() => {
-      let curr = 0;
       if (directVideoPlayerRef.current) {
-        curr = directVideoPlayerRef.current.currentTime;
+        const curr = directVideoPlayerRef.current.currentTime;
         if (curr >= clip.end_time) {
           directVideoPlayerRef.current.pause();
           clearInterval(intervalId);
@@ -1020,7 +1018,7 @@ export default function App() {
           }
         }
       } else if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
-        curr = playerRef.current.getCurrentTime();
+        const curr = playerRef.current.getCurrentTime();
         if (curr >= clip.end_time) {
           playerRef.current.pauseVideo();
           clearInterval(intervalId);
@@ -1191,10 +1189,10 @@ export default function App() {
           };
           setUploadedVideoInfo(currentVideoInfo);
           setIsUploadingVideo(false);
-        } catch (uploadErr: any) {
+        } catch (uploadErr: unknown) {
           setIsUploadingVideo(false);
           setLoading(false);
-          setError(uploadErr.message || 'Failed to upload video file');
+          setError(getErrorMessage(uploadErr, 'Failed to upload video file'));
           return;
         }
       }
@@ -1378,8 +1376,9 @@ export default function App() {
                 setOverallProgress(100);
                 break;
               }
-            } catch (err: any) {
-              if (err.message && !err.message.includes('JSON')) throw err;
+            } catch (err: unknown) {
+              const message = getErrorMessage(err, 'Invalid server event');
+              if (message && !message.includes('JSON')) throw err;
             }
           }
           if (resultData) break;
@@ -1420,8 +1419,8 @@ export default function App() {
         }
       }, 250);
 
-    } catch (err: any) {
-      const msg = String(err?.message || '');
+    } catch (err: unknown) {
+      const msg = getErrorMessage(err, '');
       if (
         msg.includes('Failed to fetch') ||
         msg.includes('NetworkError') ||
@@ -1580,8 +1579,8 @@ export default function App() {
           }
         }, 750);
       });
-    } catch (err: any) {
-      setError(err.message || t.rawDownload.failedToast);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, t.rawDownload.failedToast));
       setIsDownloadingRaw(false);
       setRawDownloadProgress(null);
     }
@@ -1681,12 +1680,13 @@ export default function App() {
           }
         }, 750);
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = getErrorMessage(err, "Failed to download clip");
       setClipDownloadStates(prev => ({
         ...prev,
-        [clipKey]: { status: 'error', error: err.message }
+        [clipKey]: { status: 'error', error: message }
       }));
-      setError(err.message || "Failed to download clip");
+      setError(message);
     }
   };
 
@@ -2089,7 +2089,10 @@ Transcript:
           <button
             type="button"
             className="cookie-header-btn"
-            onClick={() => setIsCookiesModalOpen(true)}
+            onClick={() => {
+              setHasOpenedCookiesModal(true);
+              setIsCookiesModalOpen(true);
+            }}
             style={{
               padding: '0.45rem 0.85rem',
               fontSize: '0.8rem',
@@ -2137,7 +2140,10 @@ Transcript:
           <button
             type="button"
             className="cookie-header-btn"
-            onClick={() => setIsUpdateModalOpen(true)}
+            onClick={() => {
+              setHasOpenedUpdateModal(true);
+              setIsUpdateModalOpen(true);
+            }}
             style={{
               padding: '0.45rem 0.85rem',
               fontSize: '0.8rem',
@@ -4213,7 +4219,7 @@ Transcript:
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            <span className="clip-title" style={{ color: !!markedClips[`${clip.start_time}_${clip.end_time}`] ? 'var(--secondary)' : 'var(--text-primary)', opacity: 1 }}>
+                            <span className="clip-title" style={{ color: markedClips[`${clip.start_time}_${clip.end_time}`] ? 'var(--secondary)' : 'var(--text-primary)', opacity: 1 }}>
                               {clip.title}
                             </span>
                             <button
@@ -4519,57 +4525,71 @@ Transcript:
       `}</style>
       {/* Embedded Clip Studio Section with side inline batch progress */}
       {result && (
-        <ClipStudioSection
-          videoUrl={result.video_url || url}
-          videoId={result.video_id}
-          allClips={result.clips}
-          markedClips={markedClipsList}
-          activeClip={activeClip}
-          onStartRender={handleStartBatchRender}
-          isRendering={isLaunchingRender}
-          onToggleMarkClip={(clip) => toggleMarkedClip(`${clip.start_time}_${clip.end_time}`)}
-          onToggleAllClips={toggleAllMarkedClips}
-          batchProgress={batchProgress}
-          onDismissProgress={() => {
-            if (batchEventSourceRef.current) {
-              batchEventSourceRef.current.close();
-              batchEventSourceRef.current = null;
-            }
-            setBatchProgress(null);
-          }}
-          onRetryClip={handleRetryBatchClip}
-        />
+        <Suspense fallback={<div role="status" aria-live="polite" style={{ padding: '1rem' }}>{t.studio.previewLoading}</div>}>
+          <ClipStudioSection
+            videoUrl={result.video_url || url}
+            videoId={result.video_id}
+            allClips={result.clips}
+            markedClips={markedClipsList}
+            activeClip={activeClip}
+            onStartRender={handleStartBatchRender}
+            isRendering={isLaunchingRender}
+            onToggleMarkClip={(clip) => toggleMarkedClip(`${clip.start_time}_${clip.end_time}`)}
+            onToggleAllClips={toggleAllMarkedClips}
+            batchProgress={batchProgress}
+            onDismissProgress={() => {
+              if (batchEventSourceRef.current) {
+                batchEventSourceRef.current.close();
+                batchEventSourceRef.current = null;
+              }
+              setBatchProgress(null);
+            }}
+            onRetryClip={handleRetryBatchClip}
+          />
+        </Suspense>
       )}
 
       {/* YouTube Cookies Modal */}
-      <CookiesModal
-        isOpen={isCookiesModalOpen}
-        onClose={() => setIsCookiesModalOpen(false)}
-        onCookieStatusChange={setHasCookies}
-      />
+      {hasOpenedCookiesModal && (
+        <Suspense fallback={<div role="status" aria-live="polite">{t.studio.previewLoading}</div>}>
+          <CookiesModal
+            isOpen={isCookiesModalOpen}
+            onClose={() => setIsCookiesModalOpen(false)}
+            onCookieStatusChange={setHasCookies}
+          />
+        </Suspense>
+      )}
 
       {/* App Update & Restart Modal */}
-      <AppUpdateModal
-        isOpen={isUpdateModalOpen}
-        onClose={() => setIsUpdateModalOpen(false)}
-      />
+      {hasOpenedUpdateModal && (
+        <Suspense fallback={<div role="status" aria-live="polite">{t.studio.previewLoading}</div>}>
+          <AppUpdateModal
+            isOpen={isUpdateModalOpen}
+            onClose={() => setIsUpdateModalOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Clip Trimmer & Context Editor Modal */}
-      <ClipTrimmerModal
-        isOpen={Boolean(trimmerClip)}
-        clip={trimmerClip}
-        videoId={result?.video_id || ''}
-        videoUrl={result?.video_url}
-        sourceType={result?.source_type}
-        videoTitle={result?.title}
-        videoDuration={result?.duration || 0}
-        transcript={result?.transcript}
-        onClose={() => setTrimmerClip(null)}
-        onDownload={async (adjustedClip) => {
-          handleApplyAdjustedClipToResults(adjustedClip);
-          await handleDownloadRawClip(adjustedClip);
-        }}
-      />
+      {trimmerClip && (
+        <Suspense fallback={<div role="status" aria-live="polite">{t.studio.previewLoading}</div>}>
+          <ClipTrimmerModal
+            isOpen
+            clip={trimmerClip}
+            videoId={result?.video_id || ''}
+            videoUrl={result?.video_url}
+            sourceType={result?.source_type}
+            videoTitle={result?.title}
+            videoDuration={result?.duration || 0}
+            transcript={result?.transcript}
+            onClose={() => setTrimmerClip(null)}
+            onDownload={async (adjustedClip) => {
+              handleApplyAdjustedClipToResults(adjustedClip);
+              await handleDownloadRawClip(adjustedClip);
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Global Fancy Clear Temp Confirmation Modal */}
       {showGlobalClearModal && (

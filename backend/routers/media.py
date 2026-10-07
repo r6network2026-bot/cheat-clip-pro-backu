@@ -429,14 +429,14 @@ async def detect_face(
 @router.post("/api/upload-font")
 async def upload_font(file: UploadFile = File(...)):
     """
-    Handles custom font file uploads (.ttf, .otf, .woff, .woff2).
+    Handles custom libass-compatible font uploads (.ttf, .otf).
     Saves to fonts directory so preview and libass / ffmpeg can immediately render with it.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
     
     ext = os.path.splitext(file.filename)[1].lower()
-    allowed = [".ttf", ".otf", ".woff", ".woff2"]
+    allowed = [".ttf", ".otf"]
     if ext not in allowed:
         raise HTTPException(status_code=400, detail=f"Unsupported font format. Allowed: {', '.join(allowed)}")
 
@@ -507,7 +507,7 @@ def list_available_fonts():
             if not f.is_file():
                 continue
             ext = f.suffix.lower()
-            if ext not in [".ttf", ".otf", ".woff", ".woff2"]:
+            if ext not in [".ttf", ".otf"]:
                 continue
             # Skip emoji helper fonts
             if f.name.lower() in ["seguiemj.ttf", "notocoloremoji.ttf"]:
@@ -546,5 +546,5 @@ def get_font_file(file_name: str):
         raise HTTPException(status_code=404, detail="Font file not found")
 
     ext = os.path.splitext(clean_name)[1].lower()
-    media_type = "font/woff2" if ext == ".woff2" else "font/woff" if ext == ".woff" else "font/otf" if ext == ".otf" else "font/ttf"
+    media_type = "font/otf" if ext == ".otf" else "font/ttf"
     return FileResponse(file_path, media_type=media_type, filename=clean_name)

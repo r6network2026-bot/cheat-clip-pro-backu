@@ -22,6 +22,27 @@ from backend.schemas.render import RenderBatchRequest, RenderSettingsModel
 
 RENDER_BATCHES: Dict[str, Dict[str, Any]] = {}
 BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
+RENDER_CONCURRENCY = max(1, int(os.environ.get("RENDER_CONCURRENCY", "1")))
+_RENDER_SEMAPHORE = asyncio.Semaphore(RENDER_CONCURRENCY)
+_BATCH_LOCKS: Dict[str, asyncio.Lock] = {}
+
+
+def has_active_render_jobs() -> bool:
+    """Used by cleanup endpoints to avoid deleting files currently rendered."""
+    return any(batch.get("task_scheduled") or batch.get("overall_status") == "running" for batch in RENDER_BATCHES.values())
+
+
+async def run_batch_exclusively(batch_id: str, operation, *args) -> None:
+    """Serialize a batch and cap expensive FFmpeg/Whisper jobs process-wide."""
+    lock = _BATCH_LOCKS.setdefault(batch_id, asyncio.Lock())
+    try:
+        async with lock:
+            async with _RENDER_SEMAPHORE:
+                await operation(*args)
+    finally:
+        batch = RENDER_BATCHES.get(batch_id)
+        if batch:
+            batch["task_scheduled"] = False
 
 
 async def render_single_batch_clip(
@@ -218,12 +239,13 @@ async def render_single_batch_clip(
 
     except Exception as e:
         logger.error(f"Error rendering clip {idx} in batch {batch_id}: {e}")
+        failed_stage = clip_status.get("status")
         clip_status["status"] = "error"
         err_msg = str(e)
         if "moov atom not found" in err_msg.lower():
             err_msg = "Download interrupted by internet lag ('moov atom not found'). Click Retry to re-download."
         elif "timed out" in err_msg.lower() or "timeout" in err_msg.lower():
-            if clip_status.get("status") == "rendering":
+            if failed_stage == "rendering":
                 err_msg = "Video rendering timed out. Try switching to 'Universal CPU (libx264)' in Studio Settings or retry."
             else:
                 err_msg = "Video download timed out due to slow/laggy internet connection. Click Retry to try again."

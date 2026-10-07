@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLanguage } from '../locales';
-import type { ViralClip, TranscriptLine } from '../types';
+import type { ViralClip, TranscriptLine, YouTubePlayer } from '../types';
 
 interface ClipTrimmerModalProps {
   isOpen: boolean;
@@ -109,7 +109,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
   };
 
   const timelineBarRef = useRef<HTMLDivElement | null>(null);
-  const ytPlayerRef = useRef<any>(null);
+  const ytPlayerRef = useRef<YouTubePlayer | null>(null);
   const timePollRef = useRef<number | null>(null);
   const playerReadyRef = useRef<boolean>(false);
   const isDraggingRef = useRef<boolean>(false);
@@ -182,7 +182,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
 
     const loadDirectIframe = (container: HTMLElement) => {
       if (!isMounted || playerReadyRef.current) return;
-      const embedUrl = `https://www.youtube.com/embed/${videoId}?start=${Math.floor(adjustedStart)}&controls=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+      const embedUrl = `https://www.youtube.com/embed/${videoId}?start=${Math.floor(origStart)}&controls=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
       container.innerHTML = `<iframe id="trimmer-direct-yt-iframe" src="${embedUrl}" style="width:100%!important;height:100%!important;border:none;display:block;position:absolute;top:0;left:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
       playerReadyRef.current = true;
       setPlayerReady(true);
@@ -224,7 +224,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
           videoId: videoId,
           playerVars: {
             autoplay: 0,
-            start: Math.floor(adjustedStart),
+            start: Math.floor(origStart),
             controls: 1,
             modestbranding: 1,
             rel: 0,
@@ -233,7 +233,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
             origin: window.location.origin,
           },
           events: {
-            onReady: (e: any) => {
+            onReady: (e) => {
               if (!isMounted) return;
               if (fallbackTimer) {
                 clearTimeout(fallbackTimer);
@@ -242,15 +242,15 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
               playerReadyRef.current = true;
               setPlayerReady(true);
               try {
-                e.target.seekTo(adjustedStart, true);
+                e.target.seekTo(origStart, true);
               } catch {}
             },
-            onStateChange: (e: any) => {
+            onStateChange: (e) => {
               if (!isMounted) return;
               setIsPlaying(e.data === 1);
             },
-            onError: (err: any) => {
-              console.warn('YouTube Player transient error in trimmer:', err);
+            onError: (event) => {
+              console.warn('YouTube Player transient error in trimmer:', event.data);
             }
           }
         });
@@ -287,7 +287,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
         ytPlayerRef.current = null;
       }
     };
-  }, [videoId, clip?.start_time, isOpen, isDirectVideo]);
+  }, [videoId, clip, origStart, isOpen, isDirectVideo]);
 
   // Monitor playhead and enforce looping/pause at adjustedEnd
   useEffect(() => {

@@ -163,6 +163,25 @@ ENCODER_CONFIGS: Dict[str, Tuple[str, List[str]]] = {
 }
 
 _DETECTED_SUPPORT: Optional[Dict[str, Any]] = None
+_SUBTITLES_FILTER_AVAILABLE: Optional[bool] = None
+
+
+def has_subtitles_filter() -> bool:
+    """Return whether this FFmpeg build includes libass's subtitles filter."""
+    global _SUBTITLES_FILTER_AVAILABLE
+    if _SUBTITLES_FILTER_AVAILABLE is not None:
+        return _SUBTITLES_FILTER_AVAILABLE
+    ffmpeg_path = shutil.which("ffmpeg")
+    _SUBTITLES_FILTER_AVAILABLE = bool(
+        ffmpeg_path and _ffmpeg_has_filter(ffmpeg_path, "subtitles")
+    )
+    return _SUBTITLES_FILTER_AVAILABLE
+
+
+def escape_filter_path(path: Union[str, Path]) -> str:
+    """Escape a filesystem path for a single-quoted FFmpeg filter option."""
+    value = str(Path(path).resolve()).replace("\\", "/")
+    return value.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace(",", "\\,")
 
 
 def detect_hardware_support() -> Dict[str, Any]:
@@ -189,6 +208,7 @@ def detect_hardware_support() -> Dict[str, Any]:
         "amf": has_amf,
         "qsv": has_qsv,
         "cpu": True,
+        "subtitles": has_subtitles_filter(),
         "recommended": recommended,
     }
     return _DETECTED_SUPPORT
@@ -2573,11 +2593,11 @@ def build_ffmpeg_filtergraph(
     # 2. Subtitles & Title Burning via libass (.ass)
     # (If ass_subtitles_path is provided, it contains BOTH the title and subtitles rendered with exact matching fonts)
     if ass_subtitles_path and os.path.exists(ass_subtitles_path):
-        raw_ass = str(Path(ass_subtitles_path).resolve()).replace("\\", "/")
-        escaped_ass = raw_ass.replace(":", "\\:").replace("'", "'\\''")
-        if FONTS_DIR.exists() and (any(FONTS_DIR.glob("*.ttf")) or any(FONTS_DIR.glob("*.otf")) or any(FONTS_DIR.glob("*.woff*"))):
-            raw_fonts = str(FONTS_DIR.resolve()).replace("\\", "/")
-            escaped_fonts = raw_fonts.replace("'", "'\\''").replace(":", "\\:")
+        if not has_subtitles_filter():
+            raise RuntimeError("This FFmpeg build does not include the libass subtitles filter. Install an FFmpeg build with --enable-libass.")
+        escaped_ass = escape_filter_path(ass_subtitles_path)
+        if FONTS_DIR.exists() and (any(FONTS_DIR.glob("*.ttf")) or any(FONTS_DIR.glob("*.otf"))):
+            escaped_fonts = escape_filter_path(FONTS_DIR)
             sub_filter = f"{current_v}subtitles=filename='{escaped_ass}':fontsdir='{escaped_fonts}'[v_final]"
         else:
             sub_filter = f"{current_v}subtitles=filename='{escaped_ass}'[v_final]"

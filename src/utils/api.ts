@@ -24,7 +24,7 @@ export async function resilientFetch(
     ...fetchInit
   } = options;
 
-  let lastError: any = null;
+  let lastError: unknown = null;
   let lastResponse: Response | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -42,12 +42,13 @@ export async function resilientFetch(
           `[resilientFetch] Backend responded with HTTP ${response.status} for ${String(input)} (attempt ${attempt + 1}/${maxRetries + 1}). Retrying in ${retryDelay * Math.pow(1.5, attempt)}ms...`
         );
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       lastError = err;
       if (!silent) {
+        const message = err instanceof Error ? err.message : String(err);
         console.warn(
           `[resilientFetch] Network error for ${String(input)} (attempt ${attempt + 1}/${maxRetries + 1}):`,
-          err?.message || err
+          message
         );
       }
     }
@@ -61,5 +62,5 @@ export async function resilientFetch(
   if (lastResponse) {
     return lastResponse;
   }
-  throw lastError || new Error(`Failed to fetch ${String(input)} after ${maxRetries + 1} attempts`);
+  throw lastError ?? new Error(`Failed to fetch ${String(input)} after ${maxRetries + 1} attempts`);
 }

@@ -27,7 +27,9 @@ from backend.services.render_service import (
     RENDER_BATCHES,
     process_batch_rendering,
     process_batch_retry,
+    run_batch_exclusively,
 )
+from backend.services.render_queue import get_render_queue
 
 router = APIRouter(tags=["Render"])
 
@@ -91,9 +93,20 @@ async def start_batch_render(request: RenderBatchRequest, background_tasks: Back
             "is_merged": False
         }
 
+    RENDER_BATCHES[batch_id]["task_scheduled"] = True
     BATCH_REQUESTS[batch_id] = request
 
-    background_tasks.add_task(process_batch_rendering, batch_id, request)
+    queue = get_render_queue()
+    if queue:
+        try:
+            await queue.enqueue(batch_id, RENDER_BATCHES[batch_id], request, "render")
+        except Exception as exc:
+            RENDER_BATCHES.pop(batch_id, None)
+            BATCH_REQUESTS.pop(batch_id, None)
+            logger.exception("Could not enqueue persistent render batch %s.", batch_id)
+            raise HTTPException(status_code=503, detail="Persistent render queue is unavailable") from exc
+    else:
+        background_tasks.add_task(run_batch_exclusively, batch_id, process_batch_rendering, batch_id, request)
     return {"batch_id": batch_id, "total_clips": 1 if is_merged else len(request.clips), "is_merged": is_merged}
 
 
@@ -108,6 +121,9 @@ async def retry_batch_rendering(
     batch = RENDER_BATCHES[batch_id]
     if batch_id not in BATCH_REQUESTS:
         raise HTTPException(status_code=400, detail="Batch configuration expired. Please start a new render.")
+
+    if batch.get("task_scheduled"):
+        raise HTTPException(status_code=409, detail="Batch is already queued or rendering. Please wait for it to finish.")
 
     if batch.get("overall_status") == "running":
         # Check if any clip is actively running
@@ -125,6 +141,8 @@ async def retry_batch_rendering(
     if not indices_to_retry:
         raise HTTPException(status_code=400, detail="No failed clips to retry in this batch.")
 
+    original_batch = dict(batch)
+    original_clips = [dict(clip) for clip in batch["clips"]]
     for idx in indices_to_retry:
         batch["clips"][idx]["status"] = "pending"
         batch["clips"][idx]["progress_percent"] = 0
@@ -134,8 +152,20 @@ async def retry_batch_rendering(
     batch["overall_status"] = "running"
     batch["error_message"] = None
     batch["warning_message"] = None
+    batch["task_scheduled"] = True
 
-    background_tasks.add_task(process_batch_retry, batch_id, indices_to_retry)
+    queue = get_render_queue()
+    if queue:
+        try:
+            await queue.enqueue(batch_id, batch, req, "retry", indices_to_retry)
+        except Exception as exc:
+            batch.clear()
+            batch.update(original_batch)
+            batch["clips"] = original_clips
+            logger.exception("Could not enqueue persistent render retry for %s.", batch_id)
+            raise HTTPException(status_code=503, detail="Persistent render queue is unavailable") from exc
+    else:
+        background_tasks.add_task(run_batch_exclusively, batch_id, process_batch_retry, batch_id, indices_to_retry)
     return {
         "status": "started",
         "batch_id": batch_id,

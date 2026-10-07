@@ -21,7 +21,8 @@ const getInitialLanguage = (): Language => {
   }
 
   // Detect device / browser language
-  const browserLang = (navigator.language || (navigator as any).userLanguage || '').toLowerCase();
+  const browserNavigator = navigator as Navigator & { userLanguage?: string };
+  const browserLang = (browserNavigator.language || browserNavigator.userLanguage || '').toLowerCase();
   if (browserLang.startsWith('id')) {
     return 'id';
   }

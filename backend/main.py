@@ -1,5 +1,14 @@
+from pathlib import Path
 import logging
 import os
+import sys
+from contextlib import asynccontextmanager
+
+# Support both ``python backend/main.py`` and ``python -m backend.main``.
+# Child modules always use absolute ``backend.*`` imports.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,12 +52,23 @@ from backend.services.render_service import (
     BATCH_REQUESTS,
     RENDER_BATCHES,
 )
+from backend.services.render_queue import initialize_render_queue, shutdown_render_queue
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await initialize_render_queue()
+    try:
+        yield
+    finally:
+        await shutdown_render_queue()
 
 # Initialize FastAPI Application
 app = FastAPI(
     title="CHEAT CLIP PRO API",
     description="High-performance backend API for Cheat Clip Pro auto-clipper and video studio",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 # CORS configuration supporting configurable ALLOWED_ORIGINS and local development

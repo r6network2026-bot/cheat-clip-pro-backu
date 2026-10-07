@@ -93,6 +93,50 @@ export interface HardwareAccelInfo {
   }>;
 }
 
+export interface YouTubePlayer {
+  destroy(): void;
+  loadVideoById(videoId: string | {
+    videoId: string;
+    startSeconds?: number;
+    endSeconds?: number;
+    suggestedQuality?: string;
+  }): void;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
+  pauseVideo(): void;
+  playVideo(): void;
+  mute(): void;
+  unMute(): void;
+  getPlayerState(): number;
+  getCurrentTime(): number;
+  unloadModule(moduleName: string): void;
+}
+
+export interface YouTubePlayerEvent {
+  target: YouTubePlayer;
+  data?: number;
+}
+
+export interface YouTubePlayerOptions {
+  videoId: string;
+  playerVars?: Record<string, string | number>;
+  events?: {
+    onReady?: (event: YouTubePlayerEvent) => void;
+    onStateChange?: (event: YouTubePlayerEvent) => void;
+    onError?: (event: YouTubePlayerEvent) => void;
+  };
+}
+
+export interface YouTubeIframeAPI {
+  Player: new (element: string | HTMLElement, options: YouTubePlayerOptions) => YouTubePlayer;
+}
+
+declare global {
+  interface Window {
+    YT?: YouTubeIframeAPI;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
 export interface RenderSettings {
   aspectRatio: AspectRatioOption;
   backgroundStyle: BackgroundStyle;

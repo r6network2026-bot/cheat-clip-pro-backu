@@ -90,6 +90,34 @@ npm run dev
 * **Web App:** [`http://localhost:5173`](http://localhost:5173)
 * **Backend API:** [`http://localhost:8000`](http://localhost:8000)
 * **API Documentation:** [`http://localhost:8000/docs`](http://localhost:8000/docs)
+* **Health check:** [`http://localhost:8000/api/health`](http://localhost:8000/api/health)
+
+The health endpoint preserves its existing API-liveness `status` for restart
+reconnection; inspect `render_health.status` and its individual checks for
+FFmpeg, subtitles, encoder, and storage readiness.
+
+#### Optional persistent render queue
+
+By default, render jobs use an in-memory queue for desktop installations. To persist
+render batches and queued work across backend restarts, install the backend
+dependencies and set `REDIS_URL` to a reachable Redis instance before starting the
+backend. For example:
+
+```env
+REDIS_URL=redis://localhost:6379/0
+REDIS_PREFIX=cheat-clip-pro
+```
+
+When `REDIS_URL` is set, the backend starts a Redis-backed render worker and fails
+startup if Redis is unavailable rather than silently falling back to volatile
+storage. Leave `REDIS_URL` unset to keep using the in-memory desktop queue.
+Run a single Uvicorn backend process for each `REDIS_PREFIX`; API progress state
+is synchronized inside that process while Redis provides queue and restart
+persistence.
+Run backend regression tests with `python -m unittest discover -s backend/tests`.
+The real-Redis recovery test is skipped unless `REDIS_URL` points to a reachable
+Redis server; run it with that environment variable set to verify the Redis
+queue/persistence behavior against the configured instance.
 
 ---
 

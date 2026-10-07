@@ -32,6 +32,7 @@ from backend.services.ai_service import (
     get_flash_models_for_key,
     list_available_gemini_models,
 )
+from backend.services.health_service import get_render_health
 from backend.services.gdrive_service import (
     download_google_drive_video,
     is_google_drive_url,
@@ -80,7 +81,8 @@ def health_check(refresh: bool = False):
         "proxy_configured": bool(proxy),
         "gemini_env_configured": has_gemini,
         "supadata_keys_count": len(keys),
-        "supadata": supadata_info
+        "supadata": supadata_info,
+        "render_health": get_render_health(),
     }
 
 

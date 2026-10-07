@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLanguage } from '../locales';
 import { resilientFetch } from '../utils/api';
 import type {
@@ -19,6 +19,7 @@ import type {
   HardwareAccelOption,
   HardwareAccelInfo,
   FontItem,
+  YouTubePlayer,
 } from '../types';
 
 interface ClipStudioSectionProps {
@@ -384,7 +385,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     found: false,
   });
 
-  const previewPlayerRef = useRef<any>(null);
+  const previewPlayerRef = useRef<YouTubePlayer | null>(null);
+  const initPreviewPlayerRef = useRef<() => void>(() => {});
   const directVideoRef = useRef<HTMLVideoElement | null>(null);
   const ambientVideoRef = useRef<HTMLVideoElement | null>(null);
   const trackingTimerRef = useRef<number | null>(null);
@@ -410,6 +412,11 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const clipStart = currentPreviewClip ? currentPreviewClip.start_time : 0;
   const clipEnd = currentPreviewClip ? currentPreviewClip.end_time : 60;
   const clipDuration = Math.max(1, clipEnd - clipStart);
+  const previewPlaybackRef = useRef({ currentPreviewClip, isLooping });
+
+  useEffect(() => {
+    previewPlaybackRef.current = { currentPreviewClip, isLooping };
+  }, [currentPreviewClip, isLooping]);
 
   // Fetch face/object detection coordinates
   useEffect(() => {
@@ -471,7 +478,57 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   };
 
   // Initialize YouTube player or HTML5 direct video
-  const initPreviewPlayer = () => {
+  const stopTracking = useCallback(() => {
+    if (trackingTimerRef.current !== null) {
+      clearInterval(trackingTimerRef.current);
+      trackingTimerRef.current = null;
+    }
+  }, []);
+
+  const startTracking = useCallback(() => {
+    stopTracking();
+    trackingTimerRef.current = window.setInterval(() => {
+      try {
+        const { currentPreviewClip: activeClip, isLooping: shouldLoop } = previewPlaybackRef.current;
+        if (previewPlayerRef.current && typeof previewPlayerRef.current.getCurrentTime === 'function') {
+          const iframe = document.getElementById('studio-yt-iframe-slot');
+          if (iframe && iframe.parentElement) {
+            const t = previewPlayerRef.current.getCurrentTime();
+            if (typeof t === 'number' && !isNaN(t)) {
+              setCurrentTime(t);
+              if (activeClip && t >= activeClip.end_time) {
+                if (shouldLoop) {
+                  previewPlayerRef.current.seekTo(activeClip.start_time, true);
+                } else {
+                  previewPlayerRef.current.pauseVideo();
+                }
+              }
+            }
+          }
+        } else if (directVideoRef.current) {
+          const t = directVideoRef.current.currentTime;
+          if (typeof t === 'number' && !isNaN(t)) {
+            setCurrentTime(t);
+            if (ambientVideoRef.current && Math.abs(ambientVideoRef.current.currentTime - t) > 0.3) {
+              ambientVideoRef.current.currentTime = t;
+            }
+            if (activeClip && t >= activeClip.end_time) {
+              if (shouldLoop) {
+                directVideoRef.current.currentTime = activeClip.start_time;
+                if (ambientVideoRef.current) ambientVideoRef.current.currentTime = activeClip.start_time;
+              } else {
+                directVideoRef.current.pause();
+                if (ambientVideoRef.current) ambientVideoRef.current.pause();
+                setIsPlaying(false);
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }, 150);
+  }, [stopTracking]);
+
+  const initPreviewPlayer = useCallback(() => {
     if (!videoId && !videoUrl) return;
 
     const isDirect = Boolean(videoUrl && (videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') || videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') || videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_')));
@@ -514,7 +571,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             origin: window.location.origin,
           },
           events: {
-            onReady: (event: any) => {
+            onReady: (event) => {
               setPlayerReady(true);
               try {
                 event.target.mute();
@@ -527,7 +584,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 setCurrentTime(clipStart);
               } catch (e) {}
             },
-            onStateChange: (event: any) => {
+            onStateChange: (event) => {
               if (event.data === 1) {
                 // PLAYING
                 setIsPlaying(true);
@@ -535,10 +592,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
               } else {
                 setIsPlaying(false);
                 stopTracking();
-                if (event.data === 0 && isLooping && currentPreviewClip) {
+                const { currentPreviewClip: activeClip, isLooping: shouldLoop } = previewPlaybackRef.current;
+                const player = previewPlayerRef.current;
+                if (event.data === 0 && shouldLoop && activeClip && player) {
                   try {
-                    previewPlayerRef.current.seekTo(clipStart, true);
-                    previewPlayerRef.current.playVideo();
+                    player.seekTo(activeClip.start_time, true);
+                    player.playVideo();
                   } catch (e) {}
                 }
               }
@@ -554,60 +613,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         tag.src = 'https://www.youtube.com/iframe_api';
         document.body.appendChild(tag);
       }
-      setTimeout(initPreviewPlayer, 300);
+      window.setTimeout(() => initPreviewPlayerRef.current(), 300);
     }
-  };
-
-  const startTracking = () => {
-    stopTracking();
-    trackingTimerRef.current = window.setInterval(() => {
-      try {
-        if (previewPlayerRef.current && typeof previewPlayerRef.current.getCurrentTime === 'function') {
-          const iframe = document.getElementById('studio-yt-iframe-slot');
-          if (iframe && iframe.parentElement) {
-            const t = previewPlayerRef.current.getCurrentTime();
-            if (typeof t === 'number' && !isNaN(t)) {
-              setCurrentTime(t);
-              if (currentPreviewClip && t >= currentPreviewClip.end_time) {
-                if (isLooping) {
-                  previewPlayerRef.current.seekTo(currentPreviewClip.start_time, true);
-                } else {
-                  previewPlayerRef.current.pauseVideo();
-                }
-              }
-            }
-          }
-        } else if (directVideoRef.current) {
-          const t = directVideoRef.current.currentTime;
-          if (typeof t === 'number' && !isNaN(t)) {
-            setCurrentTime(t);
-            if (ambientVideoRef.current && Math.abs(ambientVideoRef.current.currentTime - t) > 0.3) {
-              ambientVideoRef.current.currentTime = t;
-            }
-            if (currentPreviewClip && t >= currentPreviewClip.end_time) {
-              if (isLooping) {
-                directVideoRef.current.currentTime = currentPreviewClip.start_time;
-                if (ambientVideoRef.current) ambientVideoRef.current.currentTime = currentPreviewClip.start_time;
-              } else {
-                directVideoRef.current.pause();
-                if (ambientVideoRef.current) ambientVideoRef.current.pause();
-                setIsPlaying(false);
-              }
-            }
-          }
-        }
-      } catch (e) {}
-    }, 150);
-  };
-
-  const stopTracking = () => {
-    if (trackingTimerRef.current !== null) {
-      clearInterval(trackingTimerRef.current);
-      trackingTimerRef.current = null;
-    }
-  };
+  }, [videoId, videoUrl, clipStart, startTracking, stopTracking]);
 
   useEffect(() => {
+    initPreviewPlayerRef.current = initPreviewPlayer;
     initPreviewPlayer();
     return () => {
       stopTracking();
@@ -618,7 +629,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         previewPlayerRef.current = null;
       }
     };
-  }, [videoId, previewClipIndex]);
+  }, [initPreviewPlayer, stopTracking]);
 
   // When previewClipIndex changes, seek player to new clip start
   useEffect(() => {
@@ -1840,12 +1851,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       const file = e.dataTransfer.files?.[0];
                       if (file) handleUploadFont(file, 'title');
                     }}
-                    title="Drag and drop or click to upload custom font file (.ttf, .otf, .woff, .woff2)"
+                    title="Drag and drop or click to upload a custom font file (.ttf or .otf)"
                   >
                     <input
                       ref={titleFontInputRef}
                       type="file"
-                      accept=".ttf,.otf,.woff,.woff2"
+                      accept=".ttf,.otf"
                       style={{ display: 'none' }}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
@@ -1859,7 +1870,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     </span>
                     <div className="font-dropzone-text">
                       <span className="font-dropzone-title">
-                        {isUploadingFont ? (t.studio.uploadingFont || 'Uploading font...') : (t.studio.dropFontHint || 'Upload Custom Font (.ttf, .otf, .woff, .woff2)')}
+                        {isUploadingFont ? (t.studio.uploadingFont || 'Uploading font...') : (t.studio.dropFontHint || 'Upload Custom Font (.ttf, .otf)')}
                       </span>
                       <span className="font-dropzone-desc">
                         {t.studio.dropFontSub || 'Drag & drop font file here or click to browse'}
@@ -2246,12 +2257,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       const file = e.dataTransfer.files?.[0];
                       if (file) handleUploadFont(file, 'subtitle');
                     }}
-                    title="Drag and drop or click to upload custom font file (.ttf, .otf, .woff, .woff2)"
+                    title="Drag and drop or click to upload a custom font file (.ttf or .otf)"
                   >
                     <input
                       ref={subtitleFontInputRef}
                       type="file"
-                      accept=".ttf,.otf,.woff,.woff2"
+                      accept=".ttf,.otf"
                       style={{ display: 'none' }}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
@@ -2265,7 +2276,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     </span>
                     <div className="font-dropzone-text">
                       <span className="font-dropzone-title">
-                        {isUploadingFont ? (t.studio.uploadingFont || 'Uploading font...') : (t.studio.dropFontHint || 'Upload Custom Font (.ttf, .otf, .woff, .woff2)')}
+                        {isUploadingFont ? (t.studio.uploadingFont || 'Uploading font...') : (t.studio.dropFontHint || 'Upload Custom Font (.ttf, .otf)')}
                       </span>
                       <span className="font-dropzone-desc">
                         {t.studio.dropFontSub || 'Drag & drop font file here or click to browse'}

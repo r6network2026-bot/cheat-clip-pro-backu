@@ -16,6 +16,7 @@ from backend.services.system_service import (
     run_git_command,
     trigger_detached_restart,
 )
+from backend.services.render_service import has_active_render_jobs
 
 router = APIRouter(tags=["System"])
 
@@ -55,12 +56,16 @@ async def clear_temp_folder(authorized: bool = Depends(verify_admin_access)):
     from TEMP_DIR and backend/temp. Re-creates empty directories.
     PROTECTED: cookies.txt and any cookie files are strictly PRESERVED and NEVER deleted.
     """
+    if has_active_render_jobs():
+        raise HTTPException(status_code=409, detail="Cannot clear temporary files while a render job is queued or running")
     return clear_temp_files()
 
 
 @router.post("/api/cleanup-expired-temp")
 async def cleanup_expired_temp(max_age_hours: int = 48, authorized: bool = Depends(verify_admin_access)):
     """Deletes temporary frame images and slices older than max_age_hours."""
+    if has_active_render_jobs():
+        raise HTTPException(status_code=409, detail="Cannot clean temporary files while a render job is queued or running")
     return cleanup_expired_temp_files(max_age_hours=max_age_hours)
 
 

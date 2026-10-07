@@ -71,7 +71,7 @@ export const CookiesModal: React.FC<CookiesModalProps> = ({
       }
       try {
         const decoder = new TextDecoder(encoding);
-        let content = decoder.decode(bytes).replace(/\ufeff/g, '').replace(/\0/g, '');
+        const content = decoder.decode(bytes).replace(/\ufeff/g, '').replace(/\0/g, '');
         setCookieText(content);
         setMessage({
           text: t.cookies.fileLoadedInfo(file.name, (content.length / 1024).toFixed(1)),
