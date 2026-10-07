@@ -454,6 +454,9 @@ export default function App() {
   // Audio/video playback state tracking
   const [currentTime, setCurrentTime] = useState(0);
   const playerRef = useRef<YouTubePlayer | null>(null);
+  const playerReadyRef = useRef(false);
+  const playerVideoIdRef = useRef<string | null>(null);
+  const pendingSeekRef = useRef<number | null>(null);
   const initPlayerRef = useRef<((videoId: string, forceRecreate?: boolean) => void) | null>(null);
   const directVideoPlayerRef = useRef<HTMLVideoElement | null>(null);
   const trackingInterval = useRef<number | null>(null);
@@ -486,7 +489,7 @@ export default function App() {
   const startTracking = useCallback(() => {
     stopTracking();
     trackingInterval.current = window.setInterval(() => {
-      if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+      if (playerReadyRef.current && playerRef.current) {
         setCurrentTime(playerRef.current.getCurrentTime());
       }
     }, 200);
@@ -494,6 +497,8 @@ export default function App() {
 
   const destroyPlayer = useCallback(() => {
     stopTracking();
+    playerReadyRef.current = false;
+    playerVideoIdRef.current = null;
     if (playerRef.current) {
       try {
         if (typeof playerRef.current.destroy === 'function') {
@@ -514,7 +519,8 @@ export default function App() {
     if (!videoId || videoId.startsWith('upload_') || videoId.startsWith('gdrive_')) {
       return;
     }
-    if (!forceRecreate && playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
+    if (!forceRecreate && playerRef.current && playerVideoIdRef.current === videoId) {
+      if (!playerReadyRef.current) return;
       try {
         playerRef.current.loadVideoById(videoId);
         return;
@@ -538,6 +544,8 @@ export default function App() {
         container.innerHTML = '<div id="youtube-player"></div>';
       }
       try {
+        playerReadyRef.current = false;
+        playerVideoIdRef.current = videoId;
         playerRef.current = new window.YT.Player('youtube-player', {
           videoId,
           playerVars: {
@@ -548,10 +556,19 @@ export default function App() {
             fs: 1,
           },
           events: {
-            onReady: () => {
+            onReady: (event) => {
+              if (playerRef.current !== event.target) return;
+              playerReadyRef.current = true;
               console.log('YouTube Player Ready');
+              const pendingSeek = pendingSeekRef.current;
+              if (pendingSeek !== null) {
+                playerRef.current.seekTo(pendingSeek, true);
+                playerRef.current.playVideo();
+                pendingSeekRef.current = null;
+              }
             },
             onStateChange: (event) => {
+              if (!playerReadyRef.current || playerRef.current !== event.target) return;
               if (event.data === 1) {
                 startTracking();
               } else {
@@ -987,13 +1004,16 @@ export default function App() {
       directVideoPlayerRef.current.play().catch(() => {});
       return;
     }
-    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+    if (playerRef.current && playerReadyRef.current) {
       playerRef.current.seekTo(seconds, true);
       setCurrentTime(seconds);
       // If paused, play it
       if (playerRef.current.getPlayerState() !== 1) {
         playerRef.current.playVideo();
       }
+    } else {
+      pendingSeekRef.current = seconds;
+      setCurrentTime(seconds);
     }
   };
 
@@ -1017,13 +1037,15 @@ export default function App() {
             clipEndIntervalRef.current = null;
           }
         }
-      } else if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
-        const curr = playerRef.current.getCurrentTime();
-        if (curr >= clip.end_time) {
-          playerRef.current.pauseVideo();
-          clearInterval(intervalId);
-          if (clipEndIntervalRef.current === intervalId) {
-            clipEndIntervalRef.current = null;
+      } else if (playerRef.current) {
+        if (playerReadyRef.current) {
+          const curr = playerRef.current.getCurrentTime();
+          if (curr >= clip.end_time) {
+            playerRef.current.pauseVideo();
+            clearInterval(intervalId);
+            if (clipEndIntervalRef.current === intervalId) {
+              clipEndIntervalRef.current = null;
+            }
           }
         }
       } else {
@@ -3219,7 +3241,7 @@ Transcript:
                         {/* Thumbnail with overlay duration badge */}
                         <div style={{ position: 'relative', flexShrink: 0 }}>
                           <img
-                            src={entry.thumbnail}
+                            src={entry.thumbnail || undefined}
                             alt=""
                             onError={(e) => {
                               (e.target as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="84" height="48" viewBox="0 0 84 48"><rect width="84" height="48" fill="%231e1e2d"/><polygon points="36,18 52,24 36,30" fill="%236366f1"/></svg>';

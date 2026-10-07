@@ -128,4 +128,39 @@ describe('ClipTrimmerModal YouTube player', () => {
     expect(players[0].destroy).toHaveBeenCalledOnce();
     expect(players[1].seekTo).toHaveBeenCalledWith(240, true);
   });
+
+  it('does not poll or call the YouTube player before its ready event', async () => {
+    vi.useFakeTimers();
+    window.YT = { Player: FakeYouTubePlayer };
+
+    render(
+      <LanguageProvider>
+        <ClipTrimmerModal
+          isOpen
+          clip={createClip(120, 180)}
+          videoId="youtube-video"
+          videoDuration={600}
+          onClose={vi.fn()}
+          onDownload={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(60);
+      await Promise.resolve();
+    });
+    expect(players).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(players[0].getCurrentTime).not.toHaveBeenCalled();
+
+    act(() => players[0].ready());
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(players[0].getCurrentTime).toHaveBeenCalledOnce();
+  });
 });

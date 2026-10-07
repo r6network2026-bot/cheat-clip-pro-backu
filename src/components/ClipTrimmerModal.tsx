@@ -242,7 +242,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
               playerReadyRef.current = true;
               setPlayerReady(true);
               try {
-                e.target.seekTo(origStart, true);
+                e.target.seekTo(boundsRef.current.start, true);
               } catch {}
             },
             onStateChange: (e) => {
@@ -278,6 +278,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
 
     return () => {
       isMounted = false;
+      playerReadyRef.current = false;
       if (pollTimer) clearTimeout(pollTimer);
       if (fallbackTimer) clearTimeout(fallbackTimer);
       if (ytPlayerRef.current && typeof ytPlayerRef.current.destroy === 'function') {
@@ -294,7 +295,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
     timePollRef.current = window.setInterval(() => {
       // Do not poll or overwrite playhead while user is dragging
       if (isDraggingRef.current) return;
-      if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
+      if (playerReadyRef.current && ytPlayerRef.current) {
         try {
           const curr = ytPlayerRef.current.getCurrentTime();
           setCurrentTime(curr);
@@ -326,7 +327,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
         if (directVideoRef.current) {
           directVideoRef.current.currentTime = targetSec;
         }
-      } else if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+      } else if (playerReadyRef.current && ytPlayerRef.current) {
         try {
           ytPlayerRef.current.seekTo(targetSec, false);
         } catch {}
@@ -354,7 +355,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
           });
         }
       }
-    } else if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+    } else if (playerReadyRef.current && ytPlayerRef.current) {
       try {
         ytPlayerRef.current.seekTo(clamped, true);
         if (play) {
@@ -394,7 +395,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
           }
         }
       }
-    } else if (ytPlayerRef.current) {
+    } else if (playerReadyRef.current && ytPlayerRef.current) {
       try {
         if (isPlaying && typeof ytPlayerRef.current.pauseVideo === 'function') {
           ytPlayerRef.current.pauseVideo();
@@ -514,7 +515,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
           clearTimeout(throttledSeekRef.current);
           throttledSeekRef.current = null;
         }
-        if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+        if (playerReadyRef.current && ytPlayerRef.current) {
           try {
             ytPlayerRef.current.seekTo(finalSeek, true);
           } catch {}

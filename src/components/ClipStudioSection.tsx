@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLanguage } from '../locales';
 import { resilientFetch } from '../utils/api';
+import { getFontFaceSource } from '../utils/fonts';
 import type {
   ViralClip,
   RenderSettings,
@@ -308,7 +309,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   const loadCustomFontFace = (name: string, url: string) => {
     try {
-      const font = new FontFace(name, `url(${url})`);
+      const font = new FontFace(name, getFontFaceSource(url, window.location.href));
       font.load().then(loaded => {
         (document.fonts as Set<FontFace>).add(loaded);
       }).catch(err => console.warn(`Font '${name}' load error:`, err));
@@ -386,10 +387,28 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   });
 
   const previewPlayerRef = useRef<YouTubePlayer | null>(null);
+  const previewPlayerReadyRef = useRef<boolean>(false);
   const initPreviewPlayerRef = useRef<() => void>(() => {});
   const directVideoRef = useRef<HTMLVideoElement | null>(null);
   const ambientVideoRef = useRef<HTMLVideoElement | null>(null);
   const trackingTimerRef = useRef<number | null>(null);
+  const isDirectVideo = Boolean(
+    (videoUrl && (
+      videoUrl.endsWith('.mp4') ||
+      videoUrl.endsWith('.webm') ||
+      videoUrl.endsWith('.mov') ||
+      videoUrl.endsWith('.mkv') ||
+      videoUrl.includes('/api/video') ||
+      videoUrl.startsWith('blob:')
+    )) ||
+    videoId?.startsWith('upload_') ||
+    videoId?.startsWith('gdrive_')
+  );
+  const directVideoSrc = videoUrl
+    ? encodeURI(videoUrl)
+    : isDirectVideo
+      ? `/api/video/${encodeURIComponent(videoId)}`
+      : undefined;
 
   // Keep selectedClips in sync if markedClips updates from outside (including 0 clips)
   useEffect(() => {
@@ -490,7 +509,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     trackingTimerRef.current = window.setInterval(() => {
       try {
         const { currentPreviewClip: activeClip, isLooping: shouldLoop } = previewPlaybackRef.current;
-        if (previewPlayerRef.current && typeof previewPlayerRef.current.getCurrentTime === 'function') {
+        if (previewPlayerReadyRef.current && previewPlayerRef.current) {
           const iframe = document.getElementById('studio-yt-iframe-slot');
           if (iframe && iframe.parentElement) {
             const t = previewPlayerRef.current.getCurrentTime();
@@ -531,8 +550,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const initPreviewPlayer = useCallback(() => {
     if (!videoId && !videoUrl) return;
 
-    const isDirect = Boolean(videoUrl && (videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') || videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') || videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_')));
-    if (isDirect) {
+    if (isDirectVideo) {
       setPlayerReady(true);
       setCurrentTime(clipStart);
       return;
@@ -548,6 +566,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         } catch (e) {}
         previewPlayerRef.current = null;
       }
+      previewPlayerReadyRef.current = false;
+      setPlayerReady(false);
 
       container.innerHTML = '<div id="studio-yt-iframe-slot"></div>';
 
@@ -572,6 +592,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           },
           events: {
             onReady: (event) => {
+              if (previewPlayerRef.current !== event.target) return;
+              previewPlayerReadyRef.current = true;
               setPlayerReady(true);
               try {
                 event.target.mute();
@@ -585,6 +607,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
               } catch (e) {}
             },
             onStateChange: (event) => {
+              if (!previewPlayerReadyRef.current || previewPlayerRef.current !== event.target) return;
               if (event.data === 1) {
                 // PLAYING
                 setIsPlaying(true);
@@ -615,7 +638,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       }
       window.setTimeout(() => initPreviewPlayerRef.current(), 300);
     }
-  }, [videoId, videoUrl, clipStart, startTracking, stopTracking]);
+  }, [videoId, videoUrl, isDirectVideo, clipStart, startTracking, stopTracking]);
 
   useEffect(() => {
     initPreviewPlayerRef.current = initPreviewPlayer;
@@ -628,13 +651,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         } catch (e) {}
         previewPlayerRef.current = null;
       }
+      previewPlayerReadyRef.current = false;
     };
   }, [initPreviewPlayer, stopTracking]);
 
   // When previewClipIndex changes, seek player to new clip start
   useEffect(() => {
     setCurrentTime(clipStart);
-    if (previewPlayerRef.current && typeof previewPlayerRef.current.seekTo === 'function') {
+    if (previewPlayerReadyRef.current && previewPlayerRef.current) {
       try {
         previewPlayerRef.current.seekTo(clipStart, true);
       } catch (e) {}
@@ -645,7 +669,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   }, [previewClipIndex, clipStart]);
 
   const togglePlayPause = () => {
-    if (previewPlayerRef.current) {
+    if (previewPlayerReadyRef.current && previewPlayerRef.current) {
       try {
         if (isPlaying) {
           previewPlayerRef.current.pauseVideo();
@@ -676,7 +700,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   const handleSeek = (newTime: number) => {
     setCurrentTime(newTime);
-    if (previewPlayerRef.current && typeof previewPlayerRef.current.seekTo === 'function') {
+    if (previewPlayerReadyRef.current && previewPlayerRef.current) {
       try {
         previewPlayerRef.current.seekTo(newTime, true);
       } catch (e) {}
@@ -688,7 +712,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   const handleRestart = () => {
     setCurrentTime(clipStart);
-    if (previewPlayerRef.current && typeof previewPlayerRef.current.seekTo === 'function') {
+    if (previewPlayerReadyRef.current && previewPlayerRef.current) {
       try {
         previewPlayerRef.current.seekTo(clipStart, true);
         previewPlayerRef.current.playVideo();
@@ -702,7 +726,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   };
 
   const toggleMute = () => {
-    if (previewPlayerRef.current) {
+    if (previewPlayerReadyRef.current && previewPlayerRef.current) {
       try {
         if (isMuted) {
           previewPlayerRef.current.unMute();
@@ -2969,7 +2993,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       <div className="bgm-active-file-row">
                         <div className="bgm-info">
                           <img
-                            src={watermarkImageUrl}
+                            src={watermarkImageUrl || undefined}
                             alt="Logo"
                             style={{ width: '28px', height: '28px', objectFit: 'contain', borderRadius: '4px', background: 'rgba(255,255,255,0.08)' }}
                           />
@@ -3589,10 +3613,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
               >
                 {backgroundStyle === 'blurred' && aspectRatio !== '9:16' && aspectRatio !== '16:9_landscape' && (
                   <div className="ambient-blur-backdrop" style={{ overflow: 'hidden' }}>
-                    {videoUrl && (videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') || videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') || videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_')) ? (
+                    {isDirectVideo ? (
                       <video
                         ref={ambientVideoRef}
-                        src={videoUrl}
+                        src={directVideoSrc}
                         playsInline
                         muted
                         style={{
@@ -3660,10 +3684,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <div className={`wireframe-content-box aspect-${aspectRatio.replace(':', '').replace('_', '')} ${streamerPreset === 'split_top_cam' ? 'split-mode' : ''}`}>
                     <div className="wireframe-content-inner">
                       {/* HTML5 or YouTube Player slot - ALWAYS STABLY MOUNTED */}
-                      {videoUrl && (videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') || videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') || videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_')) ? (
+                      {isDirectVideo ? (
                         <video
                           ref={directVideoRef}
-                          src={videoUrl}
+                          src={directVideoSrc}
                           playsInline
                           muted={isMuted}
                           style={{
@@ -3888,7 +3912,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   >
                     {watermarkType === 'image' && watermarkImageUrl ? (
                       <img
-                        src={watermarkImageUrl}
+                        src={watermarkImageUrl || undefined}
                         alt="Watermark"
                         draggable={false}
                         style={{
@@ -3919,7 +3943,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             {/* Hidden Audio element for background music preview */}
             <audio
               ref={bgmAudioRef}
-              src={bgmAudioUrl}
+              src={bgmAudioUrl || undefined}
               onEnded={() => setIsBgmPlaying(false)}
               onLoadedMetadata={handleBgmLoadedMetadata}
               style={{ display: 'none' }}
@@ -3928,7 +3952,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             {/* Hidden Audio element for hook sound effect preview */}
             <audio
               ref={hookSfxAudioRef}
-              src={hookSfxAudioUrl}
+              src={hookSfxAudioUrl || undefined}
               onEnded={() => setIsHookSfxPlaying(false)}
               style={{ display: 'none' }}
             />
