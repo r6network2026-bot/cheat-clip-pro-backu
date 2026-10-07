@@ -12,6 +12,7 @@ from backend.routers import analyze, media, render, system
 from backend.schemas import render as render_schemas
 from backend.schemas.render import RenderBatchRequest, RenderSettingsModel, RetryBatchRequest
 from backend.services import ai_service, render_service
+from backend.services import youtube_service
 from backend.services import health_service
 from backend.services.render_queue import RedisRenderQueue
 from backend import video_engine
@@ -636,6 +637,28 @@ class GeminiMockTests(unittest.TestCase):
         self.assertEqual(models[0], "gemini-2.5-flash")
         self.assertIn("gemini-2.5-pro", models)
         client.assert_not_called()
+
+
+class YouTubeTranscriptFallbackTests(unittest.TestCase):
+    def test_proxy_diagnostic_reports_track_count_when_no_track_is_available(self):
+        api = type("TranscriptApi", (), {"list": lambda self, video_id: []})()
+        with (
+            patch.object(youtube_service, "get_supadata_keys", return_value=[]),
+            patch.object(youtube_service, "get_proxy_url", return_value="http://proxy.invalid"),
+            patch.object(youtube_service, "get_youtube_transcript_proxy_config", return_value=object()),
+            patch.object(youtube_service, "create_http_client", return_value=object()),
+            patch.object(youtube_service, "YouTubeTranscriptApi", return_value=api),
+            patch.object(youtube_service, "fetch_transcript_cli", side_effect=RuntimeError("blocked")),
+            patch.object(youtube_service, "fetch_transcript_ytdlp", return_value=[]),
+        ):
+            with self.assertRaises(HTTPException) as error:
+                youtube_service.fetch_transcript("video-id")
+
+        self.assertIn(
+            "Tier 2 (Proxy Python API): No accessible track in 0 tracks",
+            error.exception.detail,
+        )
+        self.assertNotIn("NameError", error.exception.detail)
 
 
 class FFmpegSubtitlePreflightTests(unittest.TestCase):
