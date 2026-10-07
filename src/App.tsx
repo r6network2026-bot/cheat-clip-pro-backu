@@ -193,6 +193,7 @@ function ClipperApp({ onOpenEnterprise }: { onOpenEnterprise: (payload?: Workspa
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [lastRenderSettings, setLastRenderSettings] = useState<RenderSettings | null>(null);
+  const [renderSettingsToApply, setRenderSettingsToApply] = useState<{ settings: RenderSettings; requestId: number } | null>(null);
   const [activeClip, setActiveClip] = useState<ViralClip | null>(null);
   const [expandedClipIndex, setExpandedClipIndex] = useState<number | null>(null);
 
@@ -2129,6 +2130,12 @@ Transcript:
               setActiveClip(analysis.clips?.[0] || null);
               setCurrentTime(0);
               window.setTimeout(() => initPlayer(analysis.video_id), 100);
+            },
+            onLoadRenderSettings: (settings) => {
+              setRenderSettingsToApply((previous) => ({
+                settings,
+                requestId: (previous?.requestId || 0) + 1,
+              }));
             },
           })}>
             {t.header.enterpriseProjects}
@@ -4602,6 +4609,7 @@ Transcript:
             markedClips={markedClipsList}
             activeClip={activeClip}
             onStartRender={handleStartBatchRender}
+            renderSettingsToApply={renderSettingsToApply}
             isRendering={isLaunchingRender}
             onToggleMarkClip={(clip) => toggleMarkedClip(`${clip.start_time}_${clip.end_time}`)}
             onToggleAllClips={toggleAllMarkedClips}

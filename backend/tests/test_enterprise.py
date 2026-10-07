@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -46,6 +47,15 @@ class EnterpriseAccessTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertIn("httponly", response.headers["set-cookie"].lower())
+        first_session = self.client.cookies.get(enterprise_service.SESSION_COOKIE)
+        self.assertTrue(enterprise_service.resolve_session(first_session)["is_system_admin"])
+
+        with TestClient(self.client.app) as second_account:
+            second_response = self.register(second_account, "editor@example.com", "Editor")
+            second_session = second_account.cookies.get(enterprise_service.SESSION_COOKIE)
+            self.assertFalse(enterprise_service.resolve_session(second_session)["is_system_admin"])
+            self.assertNotIn("is_system_admin", second_response.json()["user"])
+
         project = self.client.post("/api/projects", json={"name": "Launch clips"}).json()
         self.assertEqual(project["role"], "owner")
 
@@ -61,6 +71,45 @@ class EnterpriseAccessTests(unittest.TestCase):
         audit = self.client.get(f"/api/audit?project_id={project['id']}")
         self.assertEqual(audit.status_code, 200)
         self.assertIn("project.assets_updated", [event["action"] for event in audit.json()])
+
+    def test_existing_database_promotes_oldest_account_to_system_admin(self):
+        database_path = Path(self.temp_dir.name) / "legacy-enterprise.sqlite3"
+        with sqlite3.connect(database_path) as connection:
+            connection.execute(
+                """
+                CREATE TABLE users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    display_name TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.executemany(
+                """
+                INSERT INTO users (id, email, display_name, password_hash, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    ("older", "older@example.com", "Older", "hash", "2026-01-01T00:00:00+00:00"),
+                    ("newer", "newer@example.com", "Newer", "hash", "2026-01-02T00:00:00+00:00"),
+                ],
+            )
+
+        with patch.object(
+            enterprise_service, "_database_path", return_value=database_path
+        ):
+            enterprise_service.initialize_database()
+            with enterprise_service.connect() as connection:
+                accounts = connection.execute(
+                    "SELECT email, is_system_admin FROM users ORDER BY created_at"
+                ).fetchall()
+
+        self.assertEqual(
+            [(row["email"], row["is_system_admin"]) for row in accounts],
+            [("older@example.com", 1), ("newer@example.com", 0)],
+        )
 
     def test_viewer_can_read_but_cannot_write_or_read_project_audit(self):
         self.register(self.client, "owner@example.com", "Owner")

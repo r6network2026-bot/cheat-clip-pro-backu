@@ -10,11 +10,27 @@ import time
 import subprocess
 import argparse
 import logging
+import shutil
 from pathlib import Path
 
-# Setup simple logger
-logging.basicConfig(level=logging.INFO, format="[restart_runner] %(message)s")
 logger = logging.getLogger("restart_runner")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+if not logger.handlers:
+    formatter = logging.Formatter("[restart_runner] %(asctime)s %(levelname)s %(message)s")
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    log_directory = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "CheatClipPro" / "logs"
+    try:
+        log_directory.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_directory / "restart.log", encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    except OSError as error:
+        logger.warning(f"Could not open persistent restart log: {error}")
 
 def free_ports_windows(ports=(8000, 5173)):
     """Frees specified ports on Windows using PowerShell or taskkill."""
@@ -101,16 +117,30 @@ def main():
 
     time.sleep(1.0)
 
-    logger.info("Launching 'npm run dev'...")
+    logger.info("Launching application services...")
     try:
         if os.name == "nt":
-            import shutil
-            npm_bin = shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
-            subprocess.Popen(
-                ["cmd.exe", "/c", f'"{npm_bin}" run dev'],
+            powershell = shutil.which("powershell.exe") or shutil.which("powershell") or "powershell.exe"
+            startup_script = root_dir / "scripts" / "startup.ps1"
+            result = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(startup_script),
+                ],
                 cwd=str(root_dir),
-                creationflags=subprocess.CREATE_NEW_CONSOLE
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=70,
             )
+            if result.returncode != 0:
+                raise RuntimeError(f"Startup script exited with code {result.returncode}")
+            logger.info(f"Windows startup script completed successfully: {startup_script}")
         else:
             # Launch detached on Unix
             subprocess.Popen(

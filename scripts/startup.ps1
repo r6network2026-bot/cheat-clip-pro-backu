@@ -49,7 +49,7 @@ $services = @(
   @{
     Port = 5173
     Name = 'frontend'
-    Arguments = 'run dev-frontend -- --host 0.0.0.0'
+    Arguments = 'run dev-frontend -- --host 127.0.0.1'
   },
   @{
     Port = 8000

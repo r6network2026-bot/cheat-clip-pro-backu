@@ -30,6 +30,7 @@ interface ClipStudioSectionProps {
   markedClips: ViralClip[];
   activeClip: ViralClip | null;
   onStartRender: (settings: RenderSettings) => void;
+  renderSettingsToApply?: { settings: RenderSettings; requestId: number } | null;
   isRendering: boolean;
   onToggleMarkClip?: (clip: ViralClip) => void;
   onToggleAllClips?: (forceSelect?: boolean) => void;
@@ -181,6 +182,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   markedClips,
   activeClip,
   onStartRender,
+  renderSettingsToApply,
   isRendering,
   onToggleMarkClip,
   onToggleAllClips,
@@ -414,6 +416,63 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   useEffect(() => {
     setSelectedClips(markedClips);
   }, [markedClips]);
+
+  useEffect(() => {
+    if (!renderSettingsToApply) return;
+    const settings = renderSettingsToApply.settings;
+    setSelectedClips(settings.selectedClips);
+    setAspectRatio(settings.aspectRatio);
+    setBackgroundStyle(settings.backgroundStyle);
+    setEnableFaceTracking(settings.enableFaceTracking);
+    setStreamerPreset(settings.streamerPreset);
+    setFacecamPosition(settings.facecamPosition || 'auto');
+    setTitlePrefix(settings.titlePrefix || '');
+    setTitleSuffix(settings.titleSuffix || '');
+    setTitlePosition(settings.titlePosition);
+    setCaptionStyle(settings.captionStyle);
+    setLastActiveCaptionStyle(settings.captionStyle === 'none' ? 'viral_pop' : settings.captionStyle);
+    setCaptionFont(settings.captionFont);
+    setTitleFont(settings.titleFont || settings.captionFont);
+    setFontSize(settings.fontSize);
+    setFontSizePx(settings.fontSizePx ?? 75);
+    setTitleFontSize(settings.titleFontSize || 'medium');
+    setTitleFontSizePx(settings.titleFontSizePx ?? 75);
+    setTextCase(settings.textCase);
+    setTitleTextCase(settings.titleTextCase || 'uppercase');
+    setRenderMode(settings.renderMode || 'separate');
+    setCompilationTitle(settings.compilationTitle || '');
+    setFileNamePrefix(settings.fileNamePrefix || '');
+    setFileNameSuffix(settings.fileNameSuffix || '');
+    setTitleYPercent(settings.titleYPercent ?? 17);
+    setSubtitleYPercent(settings.subtitleYPercent ?? 21);
+    setSubtitlePositionMode(settings.subtitlePositionMode || 'bottom');
+    setSubtitleCenterYPercent(settings.subtitleCenterYPercent ?? 50);
+    setIsCustomTitleY(settings.titleYPercent !== undefined);
+    setTitleDuration(settings.titleDuration || 'entire');
+    setOriginalAudioVolume(settings.originalAudioVolume ?? 100);
+    setBgmEnabled(Boolean(settings.bgmEnabled && settings.bgmFilePath));
+    setBgmFileName(settings.bgmFilePath ? settings.bgmFileName || '' : '');
+    setBgmFilePath(settings.bgmFilePath || '');
+    setBgmAudioUrl('');
+    setBgmDuration(0);
+    setBgmVolume(settings.bgmVolume ?? 25);
+    setBgmStartOffset(settings.bgmStartOffset ?? 0);
+    setHookSfxFileName(settings.hookSfxFilePath ? settings.hookSfxFileName || '' : '');
+    setHookSfxFilePath(settings.hookSfxFilePath || '');
+    setHookSfxAudioUrl('');
+    setHookSfxVolume(settings.hookSfxVolume ?? 100);
+    setWatermarkType(settings.watermarkType || 'image');
+    setWatermarkImageFileName(settings.watermarkFilePath ? settings.watermarkFilePath.split(/[\\/]/).pop() || '' : '');
+    setWatermarkImageFilePath(settings.watermarkFilePath || '');
+    setWatermarkImageUrl(settings.watermarkUrl || '');
+    setWatermarkText(settings.watermarkText || '');
+    setWatermarkEnabled(Boolean(settings.watermarkEnabled && (settings.watermarkType === 'text' ? settings.watermarkText : settings.watermarkFilePath)));
+    setWatermarkSize(settings.watermarkSize ?? 20);
+    setWatermarkOpacity(settings.watermarkOpacity ?? 80);
+    setWatermarkX(settings.watermarkX ?? 88);
+    setWatermarkY(settings.watermarkY ?? 8);
+    setHardwareAccel(settings.hardwareAccel || 'auto');
+  }, [renderSettingsToApply]);
 
   // Sync active clip from external selection into preview
   useEffect(() => {

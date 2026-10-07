@@ -47,7 +47,8 @@ def initialize_database() -> None:
                 email TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 display_name TEXT NOT NULL,
                 password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                is_system_admin INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS sessions (
                 token_hash TEXT PRIMARY KEY,
@@ -91,6 +92,22 @@ def initialize_database() -> None:
             CREATE INDEX IF NOT EXISTS audit_actor_created_idx ON audit_events(actor_id, created_at DESC);
             """
         )
+        user_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(users)")
+        }
+        if "is_system_admin" not in user_columns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN is_system_admin INTEGER NOT NULL DEFAULT 0"
+            )
+        connection.execute(
+            """
+            UPDATE users SET is_system_admin = 1
+            WHERE id = (
+                SELECT id FROM users ORDER BY created_at, id LIMIT 1
+            )
+            AND NOT EXISTS (SELECT 1 FROM users WHERE is_system_admin = 1)
+            """
+        )
 
 
 def now_iso() -> str:
@@ -127,20 +144,24 @@ def issue_session(connection: sqlite3.Connection, user_id: str) -> str:
     return raw_token
 
 
-def resolve_session(raw_token: str | None) -> dict[str, str] | None:
+def resolve_session(raw_token: str | None) -> dict[str, Any] | None:
     if not raw_token:
         return None
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     with connect() as connection:
         row = connection.execute(
             """
-            SELECT users.id, users.email, users.display_name
+            SELECT users.id, users.email, users.display_name, users.is_system_admin
             FROM sessions JOIN users ON users.id = sessions.user_id
             WHERE sessions.token_hash = ? AND sessions.expires_at > ?
             """,
             (token_hash, now_iso()),
         ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    user = dict(row)
+    user["is_system_admin"] = bool(user["is_system_admin"])
+    return user
 
 
 def revoke_session(raw_token: str | None) -> None:

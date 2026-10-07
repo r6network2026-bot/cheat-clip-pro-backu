@@ -104,6 +104,7 @@ task to start both app servers after you sign in; it does not require administra
 permissions and does not run before login. Start the servers manually with
 `start.bat` if they do not come up, then inspect
 `%LOCALAPPDATA%\CheatClipPro\logs\startup.log` and `app.stderr.log`.
+The frontend binds to `127.0.0.1` and is not exposed to other devices on the network.
 Double-click `scripts/uninstall-startup.bat` to remove automatic startup. Removing
 the task does not stop an app that is already running.
 
@@ -132,8 +133,11 @@ queue/persistence behavior against the configured instance.
 
 ### Accounts, shared projects, and audit
 
-The app requires an account to use its API. Create an account from the sign-in screen;
-the account that creates a project becomes its **Owner**. Owners can grant **Admin**,
+The app requires an account to use its API. The first account registered becomes the
+system administrator; later accounts are regular users. The administrator can use
+system-wide controls such as clearing temporary files, updating, and restarting.
+Create an account from the sign-in screen; the account that creates a project becomes
+its **Owner**. Owners can grant **Admin**,
 **Editor**, or **Viewer** access to other registered email addresses. Admins manage
 project members, Editors can save shared content, and Viewers have read-only access.
 Project members can share saved video analyses and render settings. Project owners
@@ -147,6 +151,12 @@ HttpOnly, SameSite session cookies. For HTTPS deployments, set
 `SESSION_COOKIE_SECURE=true`. The SQLite database is intended for a single backend
 instance with persistent local storage; use an appropriately shared database and
 session architecture before scaling to multiple backend instances.
+For existing databases, the earliest registered account is promoted to system
+administrator during the schema migration. Keep initial registration restricted to
+the intended administrator during setup; later accounts cannot take global system
+control. `ADMIN_API_KEY` (or the legacy `CHEAT_CLIP_API_KEY`) may also authorize
+system operations for authenticated accounts that provide the key in `X-API-Key` or
+as a Bearer token.
 
 ---
 

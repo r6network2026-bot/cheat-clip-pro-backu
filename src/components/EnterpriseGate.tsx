@@ -38,6 +38,7 @@ export interface WorkspacePayload {
   analysis?: AnalyzeResponse;
   renderSettings?: RenderSettings;
   onLoadAnalysis?: (analysis: AnalyzeResponse) => void;
+  onLoadRenderSettings?: (settings: RenderSettings) => void;
 }
 
 interface EnterpriseGateProps {
@@ -184,6 +185,10 @@ export function EnterpriseGate({ children }: EnterpriseGateProps) {
             workspacePayload.onLoadAnalysis?.(analysis);
             setShowWorkspace(false);
           }}
+          onLoadRenderSettings={(settings) => {
+            workspacePayload.onLoadRenderSettings?.(settings);
+            setShowWorkspace(false);
+          }}
         />
       )}
       {authError && <div className="enterprise-global-error" role="alert">{authError}</div>}
@@ -197,12 +202,14 @@ function WorkspaceModal({
   onClose,
   onSignOut,
   onLoadAnalysis,
+  onLoadRenderSettings,
 }: {
   user: User;
   payload: WorkspacePayload;
   onClose: () => void;
   onSignOut: () => void;
   onLoadAnalysis: (analysis: AnalyzeResponse) => void;
+  onLoadRenderSettings: (settings: RenderSettings) => void;
 }) {
   const { language } = useLanguage();
   const id = language === 'id';
@@ -420,10 +427,20 @@ function WorkspaceModal({
                   </section>
                 )}
                 {project.assets?.render_settings && (
-                  <details className="enterprise-section">
-                    <summary>{id ? 'Pengaturan render tersimpan' : 'Saved render settings'}</summary>
-                    <pre className="enterprise-json">{JSON.stringify(project.assets.render_settings.data, null, 2)}</pre>
-                  </details>
+                  <section className="enterprise-section">
+                    <h4>{id ? 'Pengaturan render tersimpan' : 'Saved render settings'}</h4>
+                    <button
+                      type="button"
+                      className="enterprise-secondary"
+                      onClick={() => onLoadRenderSettings(project.assets!.render_settings!.data as RenderSettings)}
+                    >
+                      {id ? 'Terapkan pengaturan' : 'Apply settings'}
+                    </button>
+                    <details>
+                      <summary>{id ? 'Lihat detail' : 'View details'}</summary>
+                      <pre className="enterprise-json">{JSON.stringify(project.assets.render_settings.data, null, 2)}</pre>
+                    </details>
+                  </section>
                 )}
 
                 <section className="enterprise-section">

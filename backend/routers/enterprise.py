@@ -149,8 +149,13 @@ def register(body: RegistrationRequest, response: Response):
         with connect() as connection:
             connection.execute(
                 """
-                INSERT INTO users (id, email, display_name, password_hash, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (
+                    id, email, display_name, password_hash, created_at, is_system_admin
+                )
+                VALUES (
+                    ?, ?, ?, ?, ?,
+                    CASE WHEN NOT EXISTS (SELECT 1 FROM users) THEN 1 ELSE 0 END
+                )
                 """,
                 (user_id, body.email, body.display_name, hash_password(body.password), created_at),
             )
@@ -183,7 +188,7 @@ def login(body: LoginRequest, response: Response):
 @router.get("/api/auth/me")
 def current_account(request: Request):
     user = _current_user(request)
-    return {"user": user}
+    return {"user": safe_user(user)}
 
 
 @router.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
