@@ -2,6 +2,8 @@ import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } fro
 import { HeatmapTimeline } from './components/HeatmapTimeline';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { resilientFetch } from './utils/api';
+import { accountStorage } from './utils/accountStorage';
+import { EnterpriseGate, type WorkspacePayload } from './components/EnterpriseGate';
 import { useLanguage } from './locales';
 import type { AnalyzeResponse, ViralClip, RenderSettings, BatchRenderProgress, YouTubePlayer } from './types';
 
@@ -23,7 +25,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return typeof error === 'string' && error ? error : fallback;
 }
 
-export default function App() {
+function ClipperApp({ onOpenEnterprise }: { onOpenEnterprise: (payload?: WorkspacePayload) => void }) {
   const { t } = useLanguage();
   const [url, setUrl] = useState('');
   const [gdriveUrl, setGdriveUrl] = useState('');
@@ -43,11 +45,11 @@ export default function App() {
   const [isDragOverVideo, setIsDragOverVideo] = useState(false);
   const videoFileInputRef = useRef<HTMLInputElement | null>(null);
   const [durationPref, setDurationPref] = useState<'15s' | '30s' | '60s' | 'auto'>(() => {
-    const saved = localStorage.getItem('cheat_clip_duration_pref');
+    const saved = accountStorage.getItem('cheat_clip_duration_pref');
     if (saved === '15s' || saved === '30s' || saved === '60s' || saved === 'auto') return saved;
     return '30s';
   });
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('cheat_clip_gemini_api_key') || '');
+  const [apiKey, setApiKey] = useState(() => accountStorage.getItem('cheat_clip_gemini_api_key') || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isCookiesModalOpen, setIsCookiesModalOpen] = useState(false);
   const [hasOpenedCookiesModal, setHasOpenedCookiesModal] = useState(false);
@@ -75,10 +77,10 @@ export default function App() {
 
   // AI model selection and custom focus prompt states
   const [selectedModel, setSelectedModel] = useState<string>(() => {
-    const saved = localStorage.getItem('cheat_clip_selected_model');
+    const saved = accountStorage.getItem('cheat_clip_selected_model');
     // Auto-migrate outdated 1.0 models to gemini-2.5-flash
     if (saved && (saved.includes('1.0') || saved.includes('vision'))) {
-      localStorage.setItem('cheat_clip_selected_model', 'gemini-2.5-flash');
+      accountStorage.setItem('cheat_clip_selected_model', 'gemini-2.5-flash');
       return 'gemini-2.5-flash';
     }
     return saved || 'gemini-2.5-flash';
@@ -87,11 +89,11 @@ export default function App() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [targetClipCount, setTargetClipCount] = useState<number>(() => {
-    const val = localStorage.getItem('cheat_clip_target_clip_count');
+    const val = accountStorage.getItem('cheat_clip_target_clip_count');
     return val ? Number(val) : 10;
   });
   const [clipCountMode, setClipCountMode] = useState<'auto' | 'custom'>(() => {
-    const saved = localStorage.getItem('cheat_clip_clip_count_mode');
+    const saved = accountStorage.getItem('cheat_clip_clip_count_mode');
     return (saved === 'auto' || saved === 'custom') ? saved : 'auto';
   });
 
@@ -189,6 +191,8 @@ export default function App() {
 
   // Results
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [lastRenderSettings, setLastRenderSettings] = useState<RenderSettings | null>(null);
   const [activeClip, setActiveClip] = useState<ViralClip | null>(null);
   const [expandedClipIndex, setExpandedClipIndex] = useState<number | null>(null);
 
@@ -280,6 +284,7 @@ export default function App() {
 
   const handleStartBatchRender = async (settings: RenderSettings) => {
     if (!result) return;
+    setLastRenderSettings(settings);
     setIsLaunchingRender(true);
     try {
       const resp = await fetch('/api/render-batch', {
@@ -540,6 +545,7 @@ export default function App() {
     }
 
     if (window.YT && window.YT.Player) {
+      setPlaybackError(null);
       if (!document.getElementById('youtube-player')) {
         container.innerHTML = '<div id="youtube-player"></div>';
       }
@@ -554,6 +560,8 @@ export default function App() {
             rel: 0,
             controls: 1,
             fs: 1,
+            enablejsapi: 1,
+            origin: window.location.origin,
           },
           events: {
             onReady: (event) => {
@@ -578,6 +586,10 @@ export default function App() {
                 }
               }
             },
+            onError: (event) => {
+              const code = typeof event.data === 'number' ? event.data : 0;
+              setPlaybackError(t.errors.youtubePlaybackError(code));
+            },
           },
         });
       } catch (err) {
@@ -587,7 +599,7 @@ export default function App() {
     } else {
       window.setTimeout(() => initPlayerRef.current?.(videoId, forceRecreate), 200);
     }
-  }, [destroyPlayer, startTracking, stopTracking]);
+  }, [destroyPlayer, startTracking, stopTracking, t.errors]);
 
   const [isClearingGlobalTemp, setIsClearingGlobalTemp] = useState<boolean>(false);
   const [showGlobalClearModal, setShowGlobalClearModal] = useState<boolean>(false);
@@ -669,7 +681,7 @@ export default function App() {
             if (!data.models.includes(selectedModel) || selectedModel.includes('1.5') || selectedModel.includes('1.0')) {
               const fallback = data.models.find((m: string) => m.includes('flash')) || data.models[0] || 'gemini-2.5-flash';
               setSelectedModel(fallback);
-              localStorage.setItem('cheat_clip_selected_model', fallback);
+              accountStorage.setItem('cheat_clip_selected_model', fallback);
             }
           }
         }
@@ -690,7 +702,7 @@ export default function App() {
   // Sync marked clips with local storage based on active video ID
   useEffect(() => {
     if (result?.video_id) {
-      const saved = localStorage.getItem(`marked_clips_${result.video_id}`);
+      const saved = accountStorage.getItem(`marked_clips_${result.video_id}`);
       if (saved) {
         try {
           setMarkedClips(JSON.parse(saved));
@@ -717,7 +729,7 @@ export default function App() {
       [clipId]: !markedClips[clipId]
     };
     setMarkedClips(updated);
-    localStorage.setItem(`marked_clips_${result.video_id}`, JSON.stringify(updated));
+    accountStorage.setItem(`marked_clips_${result.video_id}`, JSON.stringify(updated));
   };
 
   const toggleAllMarkedClips = (forceSelect?: boolean) => {
@@ -736,17 +748,17 @@ export default function App() {
       });
     }
     setMarkedClips(updated);
-    localStorage.setItem(`marked_clips_${result.video_id}`, JSON.stringify(updated));
+    accountStorage.setItem(`marked_clips_${result.video_id}`, JSON.stringify(updated));
   };
 
   // Scan localStorage and build the history list from cache keys
   const refreshHistory = useCallback(() => {
     const entries: HistoryEntry[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
+    for (let i = 0; i < accountStorage.length; i++) {
+      const key = accountStorage.key(i);
       if (key && key.startsWith('cheat_clip_cache_')) {
         try {
-          const raw = localStorage.getItem(key);
+          const raw = accountStorage.getItem(key);
           if (!raw) continue;
           const data: AnalyzeResponse = JSON.parse(raw);
 
@@ -760,7 +772,7 @@ export default function App() {
 
           // Try reading cached timestamp stored separately
           const tsKey = `cheat_clip_ts_${video_id}_${duration_pref}${range_suffix}`;
-          const analyzed_at = localStorage.getItem(tsKey) || new Date().toISOString();
+          const analyzed_at = accountStorage.getItem(tsKey) || new Date().toISOString();
           const clip_titles = (data.clips || []).map((c: any) => c.title || '').filter(Boolean);
           const key_quotes = (data.clips || []).flatMap((c: any) => c.key_quotes || []).filter(Boolean);
 
@@ -815,7 +827,7 @@ export default function App() {
   const loadFromHistory = (entry: HistoryEntry) => {
     const rangeSuffix = entry.range_suffix || '';
     const cacheKey = `cheat_clip_cache_${entry.video_id}_${entry.duration_pref}${rangeSuffix}`;
-    const raw = localStorage.getItem(cacheKey);
+    const raw = accountStorage.getItem(cacheKey);
     if (!raw) return;
     try {
       const data: AnalyzeResponse = JSON.parse(raw);
@@ -938,8 +950,8 @@ export default function App() {
     const rangeSuffix = entry.range_suffix || '';
     const cacheKey = `cheat_clip_cache_${entry.video_id}_${entry.duration_pref}${rangeSuffix}`;
     const tsKey = `cheat_clip_ts_${entry.video_id}_${entry.duration_pref}${rangeSuffix}`;
-    localStorage.removeItem(cacheKey);
-    localStorage.removeItem(tsKey);
+    accountStorage.removeItem(cacheKey);
+    accountStorage.removeItem(tsKey);
     refreshHistory();
     setToastMessage(t.form.removedFromHistory(entry.title));
     setTimeout(() => setToastMessage(null), 3000);
@@ -947,13 +959,13 @@ export default function App() {
 
   const clearAllHistory = () => {
     const toRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
+    for (let i = 0; i < accountStorage.length; i++) {
+      const key = accountStorage.key(i);
       if (key && (key.startsWith('cheat_clip_cache_') || key.startsWith('cheat_clip_ts_'))) {
         toRemove.push(key);
       }
     }
-    toRemove.forEach(k => localStorage.removeItem(k));
+    toRemove.forEach(k => accountStorage.removeItem(k));
     setHistory([]);
     setToastMessage(t.form.allHistoryCleared);
     setTimeout(() => setToastMessage(null), 3000);
@@ -1232,7 +1244,7 @@ export default function App() {
       const clipsSuffix = clipCountMode === 'auto' ? '_clips_auto' : `_clips_${targetClipCount}`;
       const cacheKey = `cheat_clip_cache_${videoId}_${durationPref}${modelSuffix}${clipsSuffix}${promptSuffix}${rangeSuffix}${manualSuffix}`;
 
-      const cachedData = localStorage.getItem(cacheKey);
+      const cachedData = accountStorage.getItem(cacheKey);
       if (cachedData) {
         try {
           const parsedData: AnalyzeResponse = JSON.parse(cachedData);
@@ -1419,8 +1431,8 @@ export default function App() {
           const clipsSuffix = clipCountMode === 'auto' ? '_clips_auto' : `_clips_${targetClipCount}`;
           const targetCacheKey = `cheat_clip_cache_${resultData.video_id}_${durationPref}${modelSuffix}${clipsSuffix}${promptSuffix}${rangeSuffix}${manualSuffix}`;
           const tsKey = `cheat_clip_ts_${resultData.video_id}_${durationPref}${modelSuffix}${clipsSuffix}${promptSuffix}${rangeSuffix}${manualSuffix}`;
-          localStorage.setItem(targetCacheKey, JSON.stringify(resultData));
-          localStorage.setItem(tsKey, new Date().toISOString());
+          accountStorage.setItem(targetCacheKey, JSON.stringify(resultData));
+          accountStorage.setItem(tsKey, new Date().toISOString());
           refreshHistory();
         } catch (storageErr) {
           console.warn('Could not cache analysis to localStorage (likely quota limit on mobile device):', storageErr);
@@ -1492,6 +1504,7 @@ export default function App() {
 
   const handleRefreshPlayer = () => {
     if (!result) return;
+    setPlaybackError(null);
     const isDirect = Boolean(
       result.video_url ||
       result.source_type === 'upload' ||
@@ -2108,6 +2121,18 @@ Transcript:
           </div>
         </div>
         <div className="header-nav" style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          <button type="button" className="enterprise-nav-button" onClick={() => onOpenEnterprise({
+            analysis: result || undefined,
+            renderSettings: lastRenderSettings || undefined,
+            onLoadAnalysis: (analysis) => {
+              setResult(analysis);
+              setActiveClip(analysis.clips?.[0] || null);
+              setCurrentTime(0);
+              window.setTimeout(() => initPlayer(analysis.video_id), 100);
+            },
+          })}>
+            {t.header.enterpriseProjects}
+          </button>
           <button
             type="button"
             className="cookie-header-btn"
@@ -2642,7 +2667,7 @@ Transcript:
                   onChange={(e) => {
                     const val = e.target.value;
                     setApiKey(val);
-                    localStorage.setItem('cheat_clip_gemini_api_key', val);
+                    accountStorage.setItem('cheat_clip_gemini_api_key', val);
                     if (val.trim()) setError(null);
                   }}
                   disabled={loading}
@@ -2671,7 +2696,7 @@ Transcript:
                   value={selectedModel}
                   onChange={(e) => {
                     setSelectedModel(e.target.value);
-                    localStorage.setItem('cheat_clip_selected_model', e.target.value);
+                    accountStorage.setItem('cheat_clip_selected_model', e.target.value);
                   }}
                   disabled={loading}
                   style={{ padding: '0.6rem 1rem', fontSize: '0.875rem', height: '42px', cursor: 'pointer', appearance: 'auto', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
@@ -2714,7 +2739,7 @@ Transcript:
                     className={`duration-btn ${durationPref === '15s' ? 'active' : ''}`}
                     onClick={() => {
                       setDurationPref('15s');
-                      localStorage.setItem('cheat_clip_duration_pref', '15s');
+                      accountStorage.setItem('cheat_clip_duration_pref', '15s');
                     }}
                     disabled={loading}
                   >
@@ -2725,7 +2750,7 @@ Transcript:
                     className={`duration-btn ${durationPref === '30s' ? 'active' : ''}`}
                     onClick={() => {
                       setDurationPref('30s');
-                      localStorage.setItem('cheat_clip_duration_pref', '30s');
+                      accountStorage.setItem('cheat_clip_duration_pref', '30s');
                     }}
                     disabled={loading}
                   >
@@ -2736,7 +2761,7 @@ Transcript:
                     className={`duration-btn ${durationPref === '60s' ? 'active' : ''}`}
                     onClick={() => {
                       setDurationPref('60s');
-                      localStorage.setItem('cheat_clip_duration_pref', '60s');
+                      accountStorage.setItem('cheat_clip_duration_pref', '60s');
                     }}
                     disabled={loading}
                   >
@@ -2747,7 +2772,7 @@ Transcript:
                     className={`duration-btn ${durationPref === 'auto' ? 'active' : ''}`}
                     onClick={() => {
                       setDurationPref('auto');
-                      localStorage.setItem('cheat_clip_duration_pref', 'auto');
+                      accountStorage.setItem('cheat_clip_duration_pref', 'auto');
                     }}
                     disabled={loading}
                   >
@@ -2803,7 +2828,7 @@ Transcript:
                     className={`duration-btn ${clipCountMode === 'auto' ? 'active' : ''}`}
                     onClick={() => {
                       setClipCountMode('auto');
-                      localStorage.setItem('cheat_clip_clip_count_mode', 'auto');
+                      accountStorage.setItem('cheat_clip_clip_count_mode', 'auto');
                     }}
                     disabled={loading}
                   >
@@ -2814,7 +2839,7 @@ Transcript:
                     className={`duration-btn ${clipCountMode === 'custom' ? 'active' : ''}`}
                     onClick={() => {
                       setClipCountMode('custom');
-                      localStorage.setItem('cheat_clip_clip_count_mode', 'custom');
+                      accountStorage.setItem('cheat_clip_clip_count_mode', 'custom');
                     }}
                     disabled={loading}
                   >
@@ -2834,7 +2859,7 @@ Transcript:
                         onChange={(e) => {
                           const val = Number(e.target.value);
                           setTargetClipCount(val);
-                          localStorage.setItem('cheat_clip_target_clip_count', String(val));
+                          accountStorage.setItem('cheat_clip_target_clip_count', String(val));
                         }}
                         disabled={loading}
                         style={{
@@ -3738,12 +3763,34 @@ Transcript:
                     onTimeUpdate={(e) => {
                       setCurrentTime(e.currentTarget.currentTime);
                     }}
+                    onLoadedMetadata={() => setPlaybackError(null)}
+                    onError={(e) => {
+                      const code = e.currentTarget.error?.code ?? 0;
+                      setPlaybackError(t.errors.videoPlaybackError(code));
+                    }}
                     onPlay={() => startTracking()}
                     onPause={() => stopTracking()}
                   />
                 ) : (
                   <div id="youtube-player-container" style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}>
                     <div id="youtube-player"></div>
+                  </div>
+                )}
+                {playbackError && (
+                  <div className="video-playback-error" role="alert">
+                    <strong>{playbackError}</strong>
+                    <div>
+                      <button type="button" onClick={handleRefreshPlayer}>{t.errors.retryPlayback}</button>
+                      <a
+                        href={result.source_type === 'youtube' || (!result.source_type && !result.video_url)
+                          ? `https://www.youtube.com/watch?v=${encodeURIComponent(result.video_id)}`
+                          : result.video_url || `/api/video/${encodeURIComponent(result.video_id)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {t.errors.openVideoSource}
+                      </a>
+                    </div>
                   </div>
                 )}
                 {subtitlesSource === 'manual' && currentSubtitle && (
@@ -4668,5 +4715,13 @@ Transcript:
         </div>
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <EnterpriseGate>
+      {(openWorkspace) => <ClipperApp onOpenEnterprise={openWorkspace} />}
+    </EnterpriseGate>
   );
 }

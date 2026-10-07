@@ -13,10 +13,16 @@ vi.mock('./utils/api', () => ({
 describe('App lazy-loaded features', () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ user: { id: 'test-user', email: 'test@example.com', display_name: 'Test User' } }),
+    })));
   });
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it('loads the Cookies modal only after the user opens it', async () => {
@@ -30,7 +36,7 @@ describe('App lazy-loaded features', () => {
     );
 
     expect(document.querySelector('.cookies-modal-card')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /cookies/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /cookies/i }));
 
     await waitFor(() => {
       expect(document.querySelector('.cookies-modal-card')).not.toBeNull();

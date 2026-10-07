@@ -19,6 +19,7 @@ export const id: Translations = {
     confirmModalCookieNotice: "Cookie YouTube tersimpan Anda AMAN dan TIDAK akan pernah terhapus.",
     updateBtn: "Pembaruan",
     updateBtnTooltip: "Periksa pembaruan dan lihat status versi",
+    enterpriseProjects: "Project",
   },
   form: {
     sourceType: "Sumber Input",
@@ -114,6 +115,22 @@ export const id: Translations = {
     historyLoadFailed: "Gagal memuat entri riwayat ini.",
   },
   errors: {
+    youtubePlaybackError: (code: number) => {
+      if (code === 2) return "YouTube menolak ID video atau pengaturan player.";
+      if (code === 5) return "YouTube tidak dapat memutar video ini dengan player HTML5.";
+      if (code === 100) return "Video YouTube tidak tersedia, bersifat privat, atau telah dihapus.";
+      if (code === 101 || code === 150) return "Pemilik video tidak mengizinkan pemutaran di situs lain.";
+      if (code === 153) return "YouTube tidak menerima referrer browser yang diperlukan untuk mengizinkan pemutaran.";
+      return `YouTube tidak dapat memutar video ini (error ${code}).`;
+    },
+    videoPlaybackError: (code: number) => {
+      if (code === 2) return "Koneksi video gagal. Periksa backend dan pastikan file video masih tersedia.";
+      if (code === 3) return "Browser tidak dapat menguraikan format video ini.";
+      if (code === 4) return "Format atau codec video ini tidak didukung browser.";
+      return "Video tidak dapat dimuat. Periksa sumber video lalu coba lagi.";
+    },
+    openVideoSource: "Buka sumber video",
+    retryPlayback: "Coba putar lagi",
     apiKeyRequired: "Gemini API Key wajib diisi untuk menganalisis video. Dapatkan API key gratis di aistudio.google.com lalu tempel di kolom bawah.",
     invalidStart: "Format waktu mulai tidak valid. Gunakan format MM:SS (misal: 29:00), HH:MM:SS, atau detik.",
     invalidEnd: "Format waktu selesai tidak valid. Gunakan format MM:SS (misal: 31:15), HH:MM:SS, atau detik.",

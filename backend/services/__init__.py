@@ -1,73 +1,45 @@
-from backend.services.ai_service import (
-    KNOWN_FLASH_MODELS,
-    get_flash_models_for_key,
-    list_available_gemini_models,
-    parse_gemini_model_sort_key,
-)
-from backend.services.download_service import (
-    raw_clip_download_jobs,
-    raw_download_jobs,
-    run_raw_clip_download_job,
-    run_raw_download_job,
-)
-from backend.services.render_service import (
-    BATCH_REQUESTS,
-    RENDER_BATCHES,
-    process_batch_rendering,
-    process_batch_retry,
-    render_single_batch_clip,
-    update_batch_summary_and_zip,
-)
-from backend.services.system_service import (
-    clear_temp_files,
-    get_current_git_info,
-    get_dir_size_and_count,
-    get_temp_storage_summary,
-    run_git_command,
-    trigger_detached_restart,
-)
-from backend.services.youtube_service import (
-    check_single_supadata_key,
-    fetch_transcript,
-    fetch_transcript_cli,
-    fetch_transcript_supadata,
-    fetch_transcript_ytdlp,
-    fetch_video_metadata,
-    get_supadata_keys,
-    get_supadata_usage_data,
-    get_youtube_oembed_title,
-    normalize_transcript,
-)
+from importlib import import_module
 
-__all__ = [
-    "KNOWN_FLASH_MODELS",
-    "get_flash_models_for_key",
-    "list_available_gemini_models",
-    "parse_gemini_model_sort_key",
-    "raw_clip_download_jobs",
-    "raw_download_jobs",
-    "run_raw_clip_download_job",
-    "run_raw_download_job",
-    "BATCH_REQUESTS",
-    "RENDER_BATCHES",
-    "process_batch_rendering",
-    "process_batch_retry",
-    "render_single_batch_clip",
-    "update_batch_summary_and_zip",
-    "clear_temp_files",
-    "get_current_git_info",
-    "get_dir_size_and_count",
-    "get_temp_storage_summary",
-    "run_git_command",
-    "trigger_detached_restart",
-    "check_single_supadata_key",
-    "fetch_transcript",
-    "fetch_transcript_cli",
-    "fetch_transcript_supadata",
-    "fetch_transcript_ytdlp",
-    "fetch_video_metadata",
-    "get_supadata_keys",
-    "get_supadata_usage_data",
-    "get_youtube_oembed_title",
-    "normalize_transcript",
-]
+_SERVICE_MODULES = {
+    "KNOWN_FLASH_MODELS": "ai_service",
+    "get_flash_models_for_key": "ai_service",
+    "list_available_gemini_models": "ai_service",
+    "parse_gemini_model_sort_key": "ai_service",
+    "raw_clip_download_jobs": "download_service",
+    "raw_download_jobs": "download_service",
+    "run_raw_clip_download_job": "download_service",
+    "run_raw_download_job": "download_service",
+    "BATCH_REQUESTS": "render_service",
+    "RENDER_BATCHES": "render_service",
+    "process_batch_rendering": "render_service",
+    "process_batch_retry": "render_service",
+    "render_single_batch_clip": "render_service",
+    "update_batch_summary_and_zip": "render_service",
+    "clear_temp_files": "system_service",
+    "get_current_git_info": "system_service",
+    "get_dir_size_and_count": "system_service",
+    "get_temp_storage_summary": "system_service",
+    "run_git_command": "system_service",
+    "trigger_detached_restart": "system_service",
+    "check_single_supadata_key": "youtube_service",
+    "fetch_transcript": "youtube_service",
+    "fetch_transcript_cli": "youtube_service",
+    "fetch_transcript_supadata": "youtube_service",
+    "fetch_transcript_ytdlp": "youtube_service",
+    "fetch_video_metadata": "youtube_service",
+    "get_supadata_keys": "youtube_service",
+    "get_supadata_usage_data": "youtube_service",
+    "get_youtube_oembed_title": "youtube_service",
+    "normalize_transcript": "youtube_service",
+}
+
+__all__ = list(_SERVICE_MODULES)
+
+
+def __getattr__(name: str):
+    module_name = _SERVICE_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(f"backend.services.{module_name}"), name)
+    globals()[name] = value
+    return value

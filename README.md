@@ -96,6 +96,17 @@ The health endpoint preserves its existing API-liveness `status` for restart
 reconnection; inspect `render_health.status` and its individual checks for
 FFmpeg, subtitles, encoder, and storage readiness.
 
+#### Start automatically after Windows sign-in
+
+After installing Node.js and running `npm install`, double-click
+`scripts/install-startup.bat` once. This registers a per-user Windows Task Scheduler
+task to start both app servers after you sign in; it does not require administrator
+permissions and does not run before login. Start the servers manually with
+`start.bat` if they do not come up, then inspect
+`%LOCALAPPDATA%\CheatClipPro\logs\startup.log` and `app.stderr.log`.
+Double-click `scripts/uninstall-startup.bat` to remove automatic startup. Removing
+the task does not stop an app that is already running.
+
 #### Optional persistent render queue
 
 By default, render jobs use an in-memory queue for desktop installations. To persist
@@ -118,6 +129,24 @@ Run backend regression tests with `python -m unittest discover -s backend/tests`
 The real-Redis recovery test is skipped unless `REDIS_URL` points to a reachable
 Redis server; run it with that environment variable set to verify the Redis
 queue/persistence behavior against the configured instance.
+
+### Accounts, shared projects, and audit
+
+The app requires an account to use its API. Create an account from the sign-in screen;
+the account that creates a project becomes its **Owner**. Owners can grant **Admin**,
+**Editor**, or **Viewer** access to other registered email addresses. Admins manage
+project members, Editors can save shared content, and Viewers have read-only access.
+Project members can share saved video analyses and render settings. Project owners
+and admins can review the project activity audit; users can only access projects they
+belong to.
+
+Account and project data is stored in `backend/data/enterprise.sqlite3` by default
+and is intentionally excluded from Git. Set `ENTERPRISE_DB_PATH` to use another
+persistent SQLite file. Account passwords are salted and hashed; sign-in uses
+HttpOnly, SameSite session cookies. For HTTPS deployments, set
+`SESSION_COOKIE_SECURE=true`. The SQLite database is intended for a single backend
+instance with persistent local storage; use an appropriately shared database and
+session architecture before scaling to multiple backend instances.
 
 ---
 

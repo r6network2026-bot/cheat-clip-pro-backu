@@ -17,6 +17,7 @@ export const en = {
     confirmModalCookieNotice: "Stored YouTube cookies are SAFE and will NEVER be deleted.",
     updateBtn: "Update",
     updateBtnTooltip: "Check for updates and view version status",
+    enterpriseProjects: "Projects",
   },
   form: {
     sourceType: "Input Source",
@@ -112,6 +113,22 @@ export const en = {
     historyLoadFailed: "Failed to load this history entry.",
   },
   errors: {
+    youtubePlaybackError: (code: number): string => {
+      if (code === 2) return "YouTube rejected the video ID or player settings.";
+      if (code === 5) return "YouTube could not play this video in the HTML5 player.";
+      if (code === 100) return "This YouTube video is unavailable, private, or has been removed.";
+      if (code === 101 || code === 150) return "The video owner does not allow playback on other websites.";
+      if (code === 153) return "YouTube did not receive the browser referrer needed to authorize playback.";
+      return `YouTube could not play this video (error ${code}).`;
+    },
+    videoPlaybackError: (code: number): string => {
+      if (code === 2) return "The video connection failed. Check that the backend is running and the video file still exists.";
+      if (code === 3) return "The browser could not decode this video format.";
+      if (code === 4) return "This video format or codec is not supported by the browser.";
+      return "The video could not be loaded. Check that the source is available and try again.";
+    },
+    openVideoSource: "Open video source",
+    retryPlayback: "Retry playback",
     apiKeyRequired: "A Gemini API Key is required to analyze videos. Get a free key at aistudio.google.com and paste it in the field below.",
     invalidStart: "Invalid start time format. Please use MM:SS (e.g. 29:00), HH:MM:SS, or raw seconds.",
     invalidEnd: "Invalid end time format. Please use MM:SS (e.g. 31:15), HH:MM:SS, or raw seconds.",

@@ -20,6 +20,7 @@ from backend.routers import (
     analyze_router,
     cookies_router,
     downloads_router,
+    enterprise_router,
     media_router,
     render_router,
     system_router,
@@ -53,6 +54,7 @@ from backend.services.render_service import (
     RENDER_BATCHES,
 )
 from backend.services.render_queue import initialize_render_queue, shutdown_render_queue
+from backend.services.enterprise_auth import require_account_session
 
 
 @asynccontextmanager
@@ -105,7 +107,11 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+app.middleware("http")(require_account_session)
+
+
 # Include Modular Routers
+app.include_router(enterprise_router)
 app.include_router(analyze_router)
 app.include_router(render_router)
 app.include_router(media_router)

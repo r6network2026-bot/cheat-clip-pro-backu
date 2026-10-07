@@ -1,15 +1,22 @@
-from backend.routers.analyze import router as analyze_router
-from backend.routers.cookies import router as cookies_router
-from backend.routers.downloads import router as downloads_router
-from backend.routers.media import router as media_router
-from backend.routers.render import router as render_router
-from backend.routers.system import router as system_router
+from importlib import import_module
 
-__all__ = [
-    "analyze_router",
-    "cookies_router",
-    "downloads_router",
-    "media_router",
-    "render_router",
-    "system_router",
-]
+_ROUTER_MODULES = {
+    "analyze_router": "analyze",
+    "cookies_router": "cookies",
+    "downloads_router": "downloads",
+    "enterprise_router": "enterprise",
+    "media_router": "media",
+    "render_router": "render",
+    "system_router": "system",
+}
+
+__all__ = list(_ROUTER_MODULES)
+
+
+def __getattr__(name: str):
+    module_name = _ROUTER_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    router = import_module(f"backend.routers.{module_name}").router
+    globals()[name] = router
+    return router
