@@ -17,6 +17,73 @@ from backend.services.render_queue import RedisRenderQueue
 from backend import video_engine
 
 
+class UpdateCheckTests(unittest.TestCase):
+    def setUp(self):
+        self.version = {
+            "current_commit": "local123",
+            "current_commit_full": "local123456",
+            "branch": "master",
+        }
+
+    def test_reports_local_commits_that_are_not_published(self):
+        with (
+            patch.object(system, "get_current_git_info", return_value=self.version),
+            patch.object(
+                system,
+                "run_git_command",
+                side_effect=[
+                    (0, "", ""),
+                    (0, "1\t0", ""),
+                    (0, "remote12", ""),
+                ],
+            ),
+        ):
+            result = system.api_check_update()
+
+        self.assertFalse(result["update_available"])
+        self.assertEqual(result["local_ahead_count"], 1)
+        self.assertEqual(result["behind_count"], 0)
+        self.assertEqual(result["remote_commit"], "remote12")
+
+    def test_detects_diverged_history_without_offering_unsafe_update(self):
+        with (
+            patch.object(system, "get_current_git_info", return_value=self.version),
+            patch.object(
+                system,
+                "run_git_command",
+                side_effect=[
+                    (0, "", ""),
+                    (0, "2\t3", ""),
+                    (0, "new|Remote update|2026-10-07", ""),
+                    (0, "remote12", ""),
+                ],
+            ),
+        ):
+            result = system.api_check_update()
+
+        self.assertFalse(result["update_available"])
+        self.assertEqual(result["local_ahead_count"], 2)
+        self.assertEqual(result["behind_count"], 3)
+        self.assertEqual(len(result["changelog"]), 1)
+
+    def test_does_not_report_latest_when_git_comparison_fails(self):
+        with (
+            patch.object(system, "get_current_git_info", return_value=self.version),
+            patch.object(
+                system,
+                "run_git_command",
+                side_effect=[
+                    (0, "", ""),
+                    (1, "", "comparison failed"),
+                ],
+            ),
+        ):
+            result = system.api_check_update()
+
+        self.assertFalse(result["update_available"])
+        self.assertIn("comparison failed", result["error"])
+
+
 class RenderSettingsValidationTests(unittest.TestCase):
     def test_accepts_supported_values_and_defaults(self):
         settings = RenderSettingsModel(

@@ -671,6 +671,9 @@ export const id: Translations = {
     upToDateDesc: "Cheat Clip PRO sudah mutakhir dengan repositori GitHub.",
     updateAvailableTitle: "Pembaruan baru tersedia!",
     updateAvailableDesc: (count: number) => `${count} pembaruan baru tersedia dari GitHub.`,
+    localCommitsTitle: "Commit lokal belum diterbitkan",
+    localCommitsDesc: (ahead: number, remote: string, behind: number) =>
+      `${ahead} commit lokal lebih baru dari GitHub (saat ini ${remote}).${behind > 0 ? ` GitHub juga memiliki ${behind} commit yang belum ada di salinan ini; riwayat perlu diselaraskan sebelum memperbarui.` : ' Push commit ke GitHub untuk menerbitkannya.'}`,
     newCommits: "Yang Baru di Pembaruan Ini:",
     updateRestartBtn: "Perbarui & Mulai Ulang Aplikasi",
     updatingApp: "Memperbarui Cheat Clip PRO...",

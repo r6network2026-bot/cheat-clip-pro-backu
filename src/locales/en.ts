@@ -669,6 +669,9 @@ export const en = {
     upToDateDesc: "Cheat Clip PRO is completely up to date with the remote repository.",
     updateAvailableTitle: "New update available!",
     updateAvailableDesc: (count: number) => `${count} new update${count > 1 ? 's' : ''} available from GitHub.`,
+    localCommitsTitle: "Local commits are not published",
+    localCommitsDesc: (ahead: number, remote: string, behind: number) =>
+      `${ahead} local commit${ahead === 1 ? '' : 's'} are ahead of GitHub (currently ${remote}).${behind > 0 ? ` GitHub also has ${behind} commit${behind === 1 ? '' : 's'} not in this checkout; resolve the histories before updating.` : ' Push the commits to GitHub to publish them.'}`,
     newCommits: "What's New in this Update:",
     updateRestartBtn: "Update & Restart App",
     updatingApp: "Updating Cheat Clip PRO...",

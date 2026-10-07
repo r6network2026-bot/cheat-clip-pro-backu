@@ -10,6 +10,7 @@ export interface VersionInfo {
   remote_url?: string;
   update_available?: boolean;
   behind_count?: number;
+  local_ahead_count?: number;
   remote_commit?: string;
   changelog?: Array<{ hash: string; message: string; date: string }>;
   error?: string;
@@ -421,6 +422,20 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({ isOpen, onClose 
                     {t.updateModal.checkingUpdate}
                   </span>
                 </div>
+              ) : info?.error || errorMessage ? (
+                <div
+                  role="alert"
+                  style={{
+                    padding: '1rem',
+                    background: 'rgba(239, 68, 68, 0.08)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    borderRadius: '12px',
+                    color: '#fca5a5',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  {errorMessage || info?.error}
+                </div>
               ) : info?.update_available ? (
                 <div
                   style={{
@@ -499,6 +514,52 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({ isOpen, onClose 
                     }}
                   >
                     <span>⚡ {t.updateModal.updateRestartBtn}</span>
+                  </button>
+                </div>
+              ) : (info?.local_ahead_count || 0) > 0 ? (
+                <div
+                  style={{
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    borderRadius: '12px',
+                    padding: '1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.75rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                    <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#fbbf24', fontWeight: 600 }}>
+                        {t.updateModal.localCommitsTitle}
+                      </h4>
+                      <p style={{ margin: '2px 0 0 0', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                        {t.updateModal.localCommitsDesc(
+                          info?.local_ahead_count ?? 0,
+                          info?.remote_commit || 'unknown',
+                          info?.behind_count ?? 0,
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleCheckUpdate}
+                    disabled={isChecking}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      padding: '0.4rem 0.75rem',
+                      fontSize: '0.78rem',
+                      color: 'var(--text-primary)',
+                      cursor: isChecking ? 'not-allowed' : 'pointer',
+                      fontWeight: 600,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isChecking ? t.updateModal.checkingAgain : t.updateModal.checkUpdateBtn}
                   </button>
                 </div>
               ) : (

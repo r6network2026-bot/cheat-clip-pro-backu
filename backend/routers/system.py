@@ -93,9 +93,23 @@ def api_check_update():
             "error": f"Failed to fetch updates from remote: {err_fetch or 'Network or remote error'}"
         }
 
-    # Count commits behind
-    rc_count, count_str, _ = run_git_command(["rev-list", "--count", "HEAD..FETCH_HEAD"], cwd=root_dir)
-    behind_count = int(count_str) if rc_count == 0 and count_str.isdigit() else 0
+    # Compare both directions so local commits that were not pushed are visible.
+    rc_count, count_str, err_count = run_git_command(
+        ["rev-list", "--left-right", "--count", "HEAD...FETCH_HEAD"],
+        cwd=root_dir,
+    )
+    counts = count_str.split()
+    if rc_count != 0 or len(counts) != 2 or not all(value.isdigit() for value in counts):
+        return {
+            **info,
+            "update_available": False,
+            "behind_count": 0,
+            "local_ahead_count": 0,
+            "changelog": [],
+            "error": f"Failed to compare local and remote commits: {err_count or 'Invalid git response'}",
+        }
+    local_ahead_count, behind_count = (int(value) for value in counts)
+    update_available = behind_count > 0 and local_ahead_count == 0
 
     # Get changelog of new commits
     changelog = []
@@ -111,8 +125,9 @@ def api_check_update():
 
     return {
         **info,
-        "update_available": behind_count > 0,
+        "update_available": update_available,
         "behind_count": behind_count,
+        "local_ahead_count": local_ahead_count,
         "remote_commit": remote_commit if rc_remote_commit == 0 else info["current_commit"],
         "changelog": changelog
     }
